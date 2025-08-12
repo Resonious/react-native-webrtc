@@ -33,4 +33,8 @@ dependencies {
     implementation "com.facebook.react:react-android:+"
     api 'io.github.webrtc-sdk:android:137.7151.01'
     implementation "androidx.core:core:1.7.0"
+    
+    // MediaPipe dependencies for background effects
+    implementation 'com.google.mediapipe:solution-core:latest.release'
+    implementation 'com.google.mediapipe:selfie-segmentation:latest.release'
 }
