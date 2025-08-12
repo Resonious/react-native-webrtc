@@ -3,6 +3,7 @@
 #import <WebRTC/RTCI420Buffer.h>
 #import <WebRTC/RTCCVPixelBuffer.h>
 #import <Accelerate/Accelerate.h>
+@import Vision;
 
 @implementation BackgroundEffectProcessor {
     dispatch_queue_t _processingQueue;
@@ -16,11 +17,11 @@
 
 - (instancetype)initWithBackgroundColor:(UIColor *)color {
     return [self initWithBackgroundColor:color 
-                            qualityLevel:VNPersonSegmentationQualityLevelBalanced];
+                            qualityLevel:1]; // VNPersonSegmentationQualityLevelBalanced
 }
 
 - (instancetype)initWithBackgroundColor:(UIColor *)color 
-                           qualityLevel:(VNPersonSegmentationQualityLevel)quality {
+                           qualityLevel:(NSInteger)quality {
     self = [super init];
     if (self) {
         _backgroundColor = color;
@@ -37,7 +38,24 @@
 - (void)setupVision {
     if (@available(iOS 15.0, *)) {
         _segmentationRequest = [[VNGeneratePersonSegmentationRequest alloc] init];
-        _segmentationRequest.qualityLevel = _qualityLevel;
+        
+        // Map NSInteger to VNPersonSegmentationQualityLevel enum using raw values
+        // VNPersonSegmentationQualityLevelFast = 0, Balanced = 1, Accurate = 2
+        switch (_qualityLevel) {
+            case 0:
+                _segmentationRequest.qualityLevel = 0; // VNPersonSegmentationQualityLevelFast
+                break;
+            case 1:
+                _segmentationRequest.qualityLevel = 1; // VNPersonSegmentationQualityLevelBalanced
+                break;
+            case 2:
+                _segmentationRequest.qualityLevel = 2; // VNPersonSegmentationQualityLevelAccurate
+                break;
+            default:
+                _segmentationRequest.qualityLevel = 1; // VNPersonSegmentationQualityLevelBalanced
+                break;
+        }
+        
         _segmentationRequest.outputPixelFormat = kCVPixelFormatType_OneComponent8;
     } else {
         NSLog(@"Person segmentation requires iOS 15.0+");

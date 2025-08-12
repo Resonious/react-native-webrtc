@@ -39,7 +39,7 @@
     if (@available(iOS 15.0, *)) {
         BackgroundEffectProcessor *hdProcessor = [[BackgroundEffectProcessor alloc] 
             initWithBackgroundColor:[UIColor whiteColor]
-            qualityLevel:VNPersonSegmentationQualityLevelAccurate];
+            qualityLevel:2]; // VNPersonSegmentationQualityLevelAccurate
         [ProcessorProvider addProcessor:hdProcessor forName:@"backgroundWhiteHD"];
     }
 }

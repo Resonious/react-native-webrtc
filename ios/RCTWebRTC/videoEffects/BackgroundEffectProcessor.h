@@ -1,10 +1,12 @@
 #import <Foundation/Foundation.h>
 #import <WebRTC/RTCVideoFrame.h>
-#import <Vision/Vision.h>
 #import <CoreImage/CoreImage.h>
 #import "VideoFrameProcessor.h"
 
 NS_ASSUME_NONNULL_BEGIN
+
+// Forward declarations for Vision framework
+@class VNGeneratePersonSegmentationRequest;
 
 /**
  * Video frame processor that replaces the background with a solid color using Vision framework.
@@ -16,12 +18,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong) UIColor *backgroundColor;
 @property (nonatomic, strong) CIContext *ciContext;
 @property (nonatomic, strong) VNGeneratePersonSegmentationRequest *segmentationRequest;
-@property (nonatomic, assign) VNPersonSegmentationQualityLevel qualityLevel;
+@property (nonatomic, assign) NSInteger qualityLevel; // Using NSInteger for Vision framework compatibility
 
 - (instancetype)init;
 - (instancetype)initWithBackgroundColor:(UIColor *)color;
 - (instancetype)initWithBackgroundColor:(UIColor *)color 
-                           qualityLevel:(VNPersonSegmentationQualityLevel)quality;
+                           qualityLevel:(NSInteger)quality;
 
 @end
 

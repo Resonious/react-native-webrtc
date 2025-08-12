@@ -12,12 +12,12 @@ Pod::Spec.new do |s|
   s.source              = { :git => 'git@github.com:livekit/react-native-webrtc.git', :tag => 'release #{s.version}' }
   s.requires_arc        = true
 
-  s.platforms           = { :ios => '12.0', :osx => '10.13', :tvos => '16.0' }
+  s.platforms           = { :ios => '15.0', :osx => '10.13', :tvos => '16.0' }
 
   s.preserve_paths      = 'ios/**/*'
   s.source_files        = 'ios/**/*.{h,m}'
   s.libraries           = 'c', 'sqlite3', 'stdc++'
-  s.framework           = 'AudioToolbox','AVFoundation', 'CoreAudio', 'CoreGraphics', 'CoreVideo', 'GLKit', 'VideoToolbox'
+  s.framework           = 'AudioToolbox','AVFoundation', 'CoreAudio', 'CoreGraphics', 'CoreVideo', 'GLKit', 'VideoToolbox', 'Vision'
   s.dependency          'React-Core'
   s.dependency          'WebRTC-SDK', '=137.7151.02'
   
