@@ -9,6 +9,10 @@
     dispatch_queue_t _processingQueue;
     CVPixelBufferPoolRef _pixelBufferPool;
     NSDictionary *_pixelBufferAttributes;
+    NSInteger _frameCounter;
+    CVPixelBufferRef _cachedMask;
+    BOOL _isProcessingMask;
+    dispatch_semaphore_t _maskSemaphore;
 }
 
 - (instancetype)init {
@@ -16,8 +20,9 @@
 }
 
 - (instancetype)initWithBackgroundColor:(UIColor *)color {
+    // Use fastest quality for better performance on older devices
     return [self initWithBackgroundColor:color 
-                            qualityLevel:1]; // VNPersonSegmentationQualityLevelBalanced
+                            qualityLevel:0]; // VNPersonSegmentationQualityLevelFast
 }
 
 - (instancetype)initWithBackgroundColor:(UIColor *)color 
@@ -27,6 +32,10 @@
         _backgroundColor = color;
         _qualityLevel = quality;
         _processingQueue = dispatch_queue_create("com.webrtc.backgroundeffect", DISPATCH_QUEUE_SERIAL);
+        _frameCounter = 0;
+        _cachedMask = NULL;
+        _isProcessingMask = NO;
+        _maskSemaphore = dispatch_semaphore_create(1);
         
         [self setupVision];
         [self setupCoreImage];
@@ -73,10 +82,11 @@
 
 - (void)setupPixelBufferPool {
     // Setup pixel buffer pool for efficient memory management
+    // Use lower resolution for better performance on older devices
     _pixelBufferAttributes = @{
         (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
-        (__bridge NSString *)kCVPixelBufferWidthKey : @(1280),
-        (__bridge NSString *)kCVPixelBufferHeightKey : @(720),
+        (__bridge NSString *)kCVPixelBufferWidthKey : @(640),
+        (__bridge NSString *)kCVPixelBufferHeightKey : @(480),
         (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{}
     };
 }
@@ -84,31 +94,31 @@
 - (RTCVideoFrame *)capturer:(RTCVideoCapturer *)capturer 
         didCaptureVideoFrame:(RTCVideoFrame *)frame {
     
-    NSLog(@"🎨 BackgroundEffectProcessor.didCaptureVideoFrame called");
-    
     if (!_segmentationRequest) {
-        NSLog(@"🚫 No segmentation request - returning original frame");
-        return frame; // Return original if Vision not available
+        // Vision framework not available - fallback to solid background
+        return [self applySolidBackgroundToFrame:frame];
     }
-    
-    NSLog(@"🔍 Vision available, processing frame...");
     
     // Get the pixel buffer from the frame
     CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
     if (!pixelBuffer) {
-        NSLog(@"❌ Could not get pixel buffer from frame");
         return frame;
     }
-    NSLog(@"✅ Got pixel buffer from frame");
     
-    // Process the frame
-    CVPixelBufferRef processedBuffer = [self processPixelBuffer:pixelBuffer];
+    _frameCounter++;
+    
+    // Update mask every 5 frames for performance (instead of every frame)
+    if (_frameCounter % 5 == 0 && !_isProcessingMask) {
+        _isProcessingMask = YES;
+        [self updateCachedMaskAsync:pixelBuffer];
+    }
+    
+    // Always apply background effect using current or cached mask
+    CVPixelBufferRef processedBuffer = [self applyBackgroundWithMask:pixelBuffer];
     if (!processedBuffer) {
-        NSLog(@"❌ Could not process pixel buffer");
         CVPixelBufferRelease(pixelBuffer);
         return frame;
     }
-    NSLog(@"✅ Successfully processed frame with background effect");
     
     // Create new RTCVideoFrame with processed buffer
     RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
@@ -364,9 +374,102 @@
     return outputBuffer;
 }
 
+
+- (void)updateCachedMaskAsync:(CVPixelBufferRef)pixelBuffer {
+    if (@available(iOS 15.0, *)) {
+        CVPixelBufferRetain(pixelBuffer);
+        
+        dispatch_async(_processingQueue, ^{
+            VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] 
+                initWithCVPixelBuffer:pixelBuffer options:@{}];
+            
+            NSError *error = nil;
+            BOOL success = [handler performRequests:@[self->_segmentationRequest] error:&error];
+            
+            if (success && !error) {
+                VNPixelBufferObservation *observation = self->_segmentationRequest.results.firstObject;
+                if (observation && observation.pixelBuffer) {
+                    // Safely replace cached mask with new one using semaphore
+                    dispatch_semaphore_wait(self->_maskSemaphore, DISPATCH_TIME_FOREVER);
+                    
+                    CVPixelBufferRef oldMask = self->_cachedMask;
+                    self->_cachedMask = observation.pixelBuffer;
+                    CVPixelBufferRetain(self->_cachedMask);
+                    
+                    dispatch_semaphore_signal(self->_maskSemaphore);
+                    
+                    // Release old mask after semaphore is released
+                    if (oldMask) {
+                        CVPixelBufferRelease(oldMask);
+                    }
+                }
+            }
+            
+            CVPixelBufferRelease(pixelBuffer);
+            self->_isProcessingMask = NO;
+        });
+    } else {
+        _isProcessingMask = NO;
+    }
+}
+
+- (CVPixelBufferRef)applyBackgroundWithMask:(CVPixelBufferRef)inputBuffer {
+    // Safely access cached mask using semaphore
+    dispatch_semaphore_wait(_maskSemaphore, DISPATCH_TIME_FOREVER);
+    
+    CVPixelBufferRef maskToUse = NULL;
+    if (_cachedMask) {
+        maskToUse = _cachedMask;
+        CVPixelBufferRetain(maskToUse);
+    }
+    
+    dispatch_semaphore_signal(_maskSemaphore);
+    
+    if (!maskToUse) {
+        // No cached mask available, return original frame
+        CVPixelBufferRetain(inputBuffer);
+        return inputBuffer;
+    }
+    
+    // Apply background effect using cached mask
+    CVPixelBufferRef result = [self applyBackgroundEffect:inputBuffer withMask:maskToUse];
+    CVPixelBufferRelease(maskToUse);
+    
+    return result;
+}
+
+- (RTCVideoFrame *)applySolidBackgroundToFrame:(RTCVideoFrame *)frame {
+    // Get the pixel buffer from the frame
+    CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
+    if (!pixelBuffer) {
+        return frame;
+    }
+    
+    // Create solid background fallback
+    CVPixelBufferRef processedBuffer = [self createSolidBackground:pixelBuffer];
+    if (!processedBuffer) {
+        CVPixelBufferRelease(pixelBuffer);
+        return frame;
+    }
+    
+    // Create new RTCVideoFrame with processed buffer
+    RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
+    RTCVideoFrame *processedFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                                  rotation:frame.rotation
+                                                               timeStampNs:frame.timeStampNs];
+    
+    CVPixelBufferRelease(pixelBuffer);
+    CVPixelBufferRelease(processedBuffer);
+    
+    return processedFrame;
+}
+
 - (void)dealloc {
     if (_pixelBufferPool) {
         CVPixelBufferPoolRelease(_pixelBufferPool);
+    }
+    if (_cachedMask) {
+        CVPixelBufferRelease(_cachedMask);
     }
 }
 

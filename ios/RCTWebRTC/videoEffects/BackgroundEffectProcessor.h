@@ -25,6 +25,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithBackgroundColor:(UIColor *)color 
                            qualityLevel:(NSInteger)quality;
 
+- (RTCVideoFrame *)applySolidBackgroundToFrame:(RTCVideoFrame *)frame;
+
 @end
 
 NS_ASSUME_NONNULL_END
