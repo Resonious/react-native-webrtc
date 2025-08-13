@@ -1,0 +1,271 @@
+#if !TARGET_OS_TV
+
+#import "VideoFileCaptureController.h"
+#import <React/RCTLog.h>
+#import <WebRTC/RTCCVPixelBuffer.h>
+#import <WebRTC/RTCVideoFrame.h>
+
+@interface VideoFileCaptureController ()
+
+@property(nonatomic, strong) RTCVideoSource *videoSource;
+@property(nonatomic, strong) NSURL *videoFileURL;
+@property(nonatomic, assign) BOOL running;
+@property(nonatomic, assign) int width;
+@property(nonatomic, assign) int height;
+@property(nonatomic, assign) int frameRate;
+@property(nonatomic, strong) dispatch_source_t frameTimer;
+@property(nonatomic, strong) dispatch_queue_t captureQueue;
+@property(nonatomic, strong) AVAssetReader *assetReader;
+@property(nonatomic, strong) AVAssetReaderTrackOutput *trackOutput;
+@property(nonatomic, strong) AVAsset *asset;
+
+@end
+
+@implementation VideoFileCaptureController
+
+- (instancetype)initWithVideoSource:(RTCVideoSource *)videoSource 
+                       videoFileURL:(NSURL *)videoFileURL
+                       andConstraints:(NSDictionary *)constraints {
+    self = [super init];
+    if (self) {
+        self.videoSource = videoSource;
+        self.videoFileURL = videoFileURL;
+        self.running = NO;
+        
+        // Set default values
+        self.width = 640;
+        self.height = 480;
+        self.frameRate = 30;
+        
+        // Apply constraints if provided
+        if (constraints) {
+            [self applyConstraints:constraints error:nil];
+        }
+        
+        // Load the video asset
+        self.asset = [AVAsset assetWithURL:videoFileURL];
+        
+        // Create capture queue
+        self.captureQueue = dispatch_queue_create("com.webrtc.videofile.capture", DISPATCH_QUEUE_SERIAL);
+    }
+    
+    return self;
+}
+
+- (void)startCapture {
+    if (self.running) {
+        return;
+    }
+    
+    RCTLog(@"[VideoFileCaptureController] Starting video file capture from: %@", self.videoFileURL);
+    
+    // Check if asset is ready
+    NSArray *videoTracks = [self.asset tracksWithMediaType:AVMediaTypeVideo];
+    RCTLog(@"[VideoFileCaptureController] Found %lu video tracks", (unsigned long)videoTracks.count);
+    
+    // Setup asset reader
+    NSError *error = nil;
+    self.assetReader = [[AVAssetReader alloc] initWithAsset:self.asset error:&error];
+    if (error) {
+        RCTLogError(@"[VideoFileCaptureController] Error creating asset reader: %@", error);
+        return;
+    }
+    
+    // Get the video track
+    AVAssetTrack *videoTrack = [videoTracks firstObject];
+    if (!videoTrack) {
+        RCTLogError(@"[VideoFileCaptureController] No video track found in file");
+        return;
+    }
+    
+    // Log track info
+    CGSize naturalSize = videoTrack.naturalSize;
+    float frameRate = videoTrack.nominalFrameRate;
+    RCTLog(@"[VideoFileCaptureController] Video track: %.0fx%.0f @ %.1f fps", 
+           naturalSize.width, naturalSize.height, frameRate);
+    
+    // Create track output
+    NSDictionary *outputSettings = @{
+        (NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)
+    };
+    
+    self.trackOutput = [[AVAssetReaderTrackOutput alloc] initWithTrack:videoTrack outputSettings:outputSettings];
+    [self.assetReader addOutput:self.trackOutput];
+    
+    if (![self.assetReader startReading]) {
+        RCTLogError(@"[VideoFileCaptureController] Failed to start reading asset. Status: %ld", 
+                    (long)self.assetReader.status);
+        if (self.assetReader.error) {
+            RCTLogError(@"[VideoFileCaptureController] Asset reader error: %@", self.assetReader.error);
+        }
+        return;
+    }
+    
+    self.running = YES;
+    
+    // Create dispatch timer for consistent frame capture
+    NSTimeInterval frameInterval = 1.0 / self.frameRate;
+    self.frameTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, self.captureQueue);
+    
+    // Set timer to fire at frameRate fps
+    dispatch_source_set_timer(self.frameTimer,
+                              dispatch_time(DISPATCH_TIME_NOW, 0),
+                              (uint64_t)(frameInterval * NSEC_PER_SEC),
+                              (uint64_t)(frameInterval * NSEC_PER_SEC / 10)); // 10% leeway
+    
+    // Set timer handler
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(self.frameTimer, ^{
+        [weakSelf captureFrame];
+    });
+    
+    // Start the timer
+    dispatch_resume(self.frameTimer);
+    
+    // Immediately capture first frame to verify it's working
+    dispatch_async(self.captureQueue, ^{
+        [self captureFrame];
+    });
+    
+    RCTLog(@"[VideoFileCaptureController] Capture started at %d fps", self.frameRate);
+}
+
+- (void)stopCapture {
+    if (!self.running) {
+        return;
+    }
+    
+    RCTLog(@"[VideoFileCaptureController] Stopping capture");
+    
+    self.running = NO;
+    
+    if (self.frameTimer) {
+        dispatch_source_cancel(self.frameTimer);
+        self.frameTimer = nil;
+    }
+    
+    if (self.assetReader) {
+        [self.assetReader cancelReading];
+        self.assetReader = nil;
+        self.trackOutput = nil;
+    }
+    
+    RCTLog(@"[VideoFileCaptureController] Capture stopped");
+}
+
+- (void)captureFrame {
+    if (!self.running || !self.assetReader || !self.trackOutput) {
+        return;
+    }
+    
+    CMSampleBufferRef sampleBuffer = [self.trackOutput copyNextSampleBuffer];
+    if (!sampleBuffer) {
+        // End of file reached, restart from beginning for looping
+        RCTLog(@"[VideoFileCaptureController] End of video reached, restarting");
+        [self restartCapture];
+        return;
+    }
+    
+    CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+    if (pixelBuffer) {
+        // Log frame capture for debugging
+        static int frameCount = 0;
+        if (frameCount % 30 == 0) { // Log every 30th frame to avoid spam
+            size_t width = CVPixelBufferGetWidth(pixelBuffer);
+            size_t height = CVPixelBufferGetHeight(pixelBuffer);
+            RCTLog(@"[VideoFileCaptureController] Capturing frame %d (%zux%zu)", frameCount, width, height);
+        }
+        frameCount++;
+        
+        // Create RTCVideoFrame
+        RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:pixelBuffer];
+        
+        // Get timestamp
+        int64_t timeStampNs = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)) * 1000000000;
+        
+        RTCVideoFrame *frame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                            rotation:RTCVideoRotation_0
+                                                         timeStampNs:timeStampNs];
+        
+        // Send frame to video source (using self as capturer since we don't have RTCCameraCapturer)
+        [self.videoSource capturer:(RTCVideoCapturer *)self didCaptureVideoFrame:frame];
+    } else {
+        RCTLog(@"[VideoFileCaptureController] Failed to get pixel buffer from sample");
+    }
+    
+    CFRelease(sampleBuffer);
+}
+
+- (void)restartCapture {
+    // Restart the asset reader for continuous looping
+    [self.assetReader cancelReading];
+    
+    NSError *error = nil;
+    self.assetReader = [[AVAssetReader alloc] initWithAsset:self.asset error:&error];
+    if (error) {
+        RCTLogError(@"[VideoFileCaptureController] Error recreating asset reader: %@", error);
+        return;
+    }
+    
+    AVAssetTrack *videoTrack = [[self.asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    NSDictionary *outputSettings = @{
+        (NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)
+    };
+    
+    self.trackOutput = [[AVAssetReaderTrackOutput alloc] initWithTrack:videoTrack outputSettings:outputSettings];
+    [self.assetReader addOutput:self.trackOutput];
+    
+    [self.assetReader startReading];
+}
+
+- (void)applyConstraints:(NSDictionary *)constraints error:(NSError **)outError {
+    if (constraints[@"width"]) {
+        self.width = [constraints[@"width"] intValue];
+    }
+    if (constraints[@"height"]) {
+        self.height = [constraints[@"height"] intValue];
+    }
+    if (constraints[@"frameRate"]) {
+        self.frameRate = [constraints[@"frameRate"] intValue];
+        
+        // Update timer if running
+        if (self.running && self.frameTimer) {
+            dispatch_source_cancel(self.frameTimer);
+            
+            // Create new timer with updated frame rate
+            NSTimeInterval frameInterval = 1.0 / self.frameRate;
+            self.frameTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, self.captureQueue);
+            
+            dispatch_source_set_timer(self.frameTimer,
+                                      dispatch_time(DISPATCH_TIME_NOW, 0),
+                                      (uint64_t)(frameInterval * NSEC_PER_SEC),
+                                      (uint64_t)(frameInterval * NSEC_PER_SEC / 10));
+            
+            __weak typeof(self) weakSelf = self;
+            dispatch_source_set_event_handler(self.frameTimer, ^{
+                [weakSelf captureFrame];
+            });
+            
+            dispatch_resume(self.frameTimer);
+        }
+    }
+}
+
+- (NSDictionary *)getSettings {
+    return @{
+        @"deviceId" : @"video_file",
+        @"groupId" : @"",
+        @"height" : @(self.height),
+        @"width" : @(self.width),
+        @"frameRate" : @(self.frameRate),
+        @"facingMode" : @"environment"
+    };
+}
+
+- (void)dealloc {
+    [self stopCapture];
+}
+
+@end
+
+#endif

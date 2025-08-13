@@ -16,6 +16,8 @@
 		2D02E4BF1E0B4AB3006451C7 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
 		2DCD954D1E0B4F2C00145EB5 /* GumTestAppTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 00E356F21AD99517003FC87E /* GumTestAppTests.m */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		AC64BA132E4BFF66004182A8 /* test_video.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = AC64BA122E4BFF66004182A8 /* test_video.mp4 */; };
+		AC64BA142E4BFF66004182A8 /* test_video.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = AC64BA122E4BFF66004182A8 /* test_video.mp4 */; };
 		AD367892908F94AB630CCF9E /* libPods-GumTestApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A4883388C23D78A7B33E474D /* libPods-GumTestApp.a */; };
 		BC8C3F351A8237EC6AB17E29 /* libPods-GumTestApp-GumTestAppTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 45F17E13F20E1C25C3C2E910 /* libPods-GumTestApp-GumTestAppTests.a */; };
 /* End PBXBuildFile section */
@@ -56,6 +58,7 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = GumTestApp/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A4883388C23D78A7B33E474D /* libPods-GumTestApp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-GumTestApp.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A8943D48F256A166F5E8FDB2 /* Pods-GumTestApp.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GumTestApp.debug.xcconfig"; path = "Target Support Files/Pods-GumTestApp/Pods-GumTestApp.debug.xcconfig"; sourceTree = "<group>"; };
+		AC64BA122E4BFF66004182A8 /* test_video.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_video.mp4; sourceTree = "<group>"; };
 		C8B6544CD20BD58F1D855297 /* Pods-GumTestApp-GumTestAppTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GumTestApp-GumTestAppTests.release.xcconfig"; path = "Target Support Files/Pods-GumTestApp-GumTestAppTests/Pods-GumTestApp-GumTestAppTests.release.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		ED2971642150620600B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = Platforms/AppleTVOS.platform/Developer/SDKs/AppleTVOS12.0.sdk/System/Library/Frameworks/JavaScriptCore.framework; sourceTree = DEVELOPER_DIR; };
@@ -115,6 +118,7 @@
 		13B07FAE1A68108700A75B9A /* GumTestApp */ = {
 			isa = PBXGroup;
 			children = (
+				AC64BA122E4BFF66004182A8 /* test_video.mp4 */,
 				008F07F21AC5B25A0029DE68 /* main.jsbundle */,
 				13B07FAF1A68108700A75B9A /* AppDelegate.h */,
 				13B07FB01A68108700A75B9A /* AppDelegate.m */,
@@ -325,6 +329,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
+				AC64BA142E4BFF66004182A8 /* test_video.mp4 in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -334,6 +339,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2D02E4BD1E0B4A84006451C7 /* Images.xcassets in Resources */,
+				AC64BA132E4BFF66004182A8 /* test_video.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

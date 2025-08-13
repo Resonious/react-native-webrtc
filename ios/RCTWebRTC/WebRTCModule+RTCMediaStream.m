@@ -15,6 +15,7 @@
 #import "ScreenCapturer.h"
 #import "TrackCapturerEventsEmitter.h"
 #import "VideoCaptureController.h"
+#import "VideoFileCaptureController.h"
 
 @implementation WebRTCModule (RTCMediaStream)
 
@@ -148,7 +149,23 @@
     NSString *trackUUID = [[NSUUID UUID] UUIDString];
     RTCVideoTrack *videoTrack = [self.peerConnectionFactory videoTrackWithSource:videoSource trackId:trackUUID];
 
-#if !TARGET_IPHONE_SIMULATOR
+#if TARGET_IPHONE_SIMULATOR
+    // Use video file capture for simulator testing
+    NSBundle *bundle = [NSBundle mainBundle];
+    NSURL *videoFileURL = [bundle URLForResource:@"test_video" withExtension:@"mp4"];
+    
+    if (videoFileURL) {
+        RCTLog(@"[WebRTCModule] Using video file for simulator: %@", videoFileURL);
+        VideoFileCaptureController *videoFileCaptureController =
+            [[VideoFileCaptureController alloc] initWithVideoSource:videoSource
+                                                        videoFileURL:videoFileURL
+                                                      andConstraints:constraints[@"video"]];
+        videoTrack.captureController = videoFileCaptureController;
+        [videoFileCaptureController startCapture];
+    } else {
+        RCTLogWarn(@"[WebRTCModule] test_video.mp4 not found in bundle - camera will not work on simulator");
+    }
+#else
     RTCCameraVideoCapturer *videoCapturer = [[RTCCameraVideoCapturer alloc] initWithDelegate:videoSource];
     VideoCaptureController *videoCaptureController =
         [[VideoCaptureController alloc] initWithCapturer:videoCapturer andConstraints:constraints[@"video"]];
