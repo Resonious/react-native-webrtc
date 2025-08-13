@@ -1,14 +1,3 @@
-// React Native bug hack: https://github.com/facebook/react-native/issues/52394
-void __cxa_increment_exception_refcount(void* thrown_exception) {
-    // Minimal no-op implementation
-}
-
-void __cxa_decrement_exception_refcount(void* thrown_exception) {
-    // Matching no-op implementation
-}
-// End React Native bug hack
-
-
 #import "AppDelegate.h"
 
 #import <React/RCTBundleURLProvider.h>
