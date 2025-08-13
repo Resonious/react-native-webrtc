@@ -166,13 +166,35 @@
         RCTLogWarn(@"[WebRTCModule] test_video.mp4 not found in bundle - camera will not work on simulator");
     }
 #else
-    RTCCameraVideoCapturer *videoCapturer = [[RTCCameraVideoCapturer alloc] initWithDelegate:videoSource];
-    VideoCaptureController *videoCaptureController =
-        [[VideoCaptureController alloc] initWithCapturer:videoCapturer andConstraints:constraints[@"video"]];
-    videoCaptureController.enableMultitaskingCameraAccess =
-        [WebRTCModuleOptions sharedInstance].enableMultitaskingCameraAccess;
-    videoTrack.captureController = videoCaptureController;
-    [videoCaptureController startCapture];
+    RCTLog(@"[WebRTCModule] 📱 Creating real device camera capture (not simulator)");
+    
+    @try {
+        RCTLog(@"[WebRTCModule] 🏗️ Creating RTCCameraVideoCapturer...");
+        RTCCameraVideoCapturer *videoCapturer = [[RTCCameraVideoCapturer alloc] initWithDelegate:videoSource];
+        RCTLog(@"[WebRTCModule] ✅ RTCCameraVideoCapturer created");
+        
+        RCTLog(@"[WebRTCModule] 🏗️ Creating VideoCaptureController...");
+        VideoCaptureController *videoCaptureController =
+            [[VideoCaptureController alloc] initWithCapturer:videoCapturer andConstraints:constraints[@"video"]];
+        RCTLog(@"[WebRTCModule] ✅ VideoCaptureController created");
+        
+        RCTLog(@"[WebRTCModule] 🔧 Setting multitasking camera access...");
+        videoCaptureController.enableMultitaskingCameraAccess =
+            [WebRTCModuleOptions sharedInstance].enableMultitaskingCameraAccess;
+        RCTLog(@"[WebRTCModule] ✅ Multitasking camera access configured");
+        
+        RCTLog(@"[WebRTCModule] 🔗 Assigning capture controller to video track...");
+        videoTrack.captureController = videoCaptureController;
+        RCTLog(@"[WebRTCModule] ✅ Capture controller assigned");
+        
+        RCTLog(@"[WebRTCModule] 📹 Starting camera capture...");
+        [videoCaptureController startCapture];
+        RCTLog(@"[WebRTCModule] ✅ Camera capture started successfully");
+    } @catch (NSException *exception) {
+        RCTLogError(@"[WebRTCModule] ❌ Exception creating camera capture: %@", exception);
+        RCTLogError(@"[WebRTCModule] Exception reason: %@", exception.reason);
+        RCTLogError(@"[WebRTCModule] Exception stack: %@", exception.callStackSymbols);
+    }
 #endif
 
     return videoTrack;
@@ -526,10 +548,22 @@ RCT_EXPORT_METHOD(mediaStreamTrackSetVideoEffects
 
     self.videoEffectProcessor = [[VideoEffectProcessor alloc] initWithProcessors:processors videoSource:videoSource];
 
-    VideoCaptureController *vcc = (VideoCaptureController *)videoTrack.captureController;
-    RTCVideoCapturer *capturer = vcc.capturer;
-
-    capturer.delegate = self.videoEffectProcessor;
+    // Handle both VideoCaptureController and VideoFileCaptureController
+    RTCVideoCapturer *capturer = nil;
+    if ([videoTrack.captureController isKindOfClass:[VideoCaptureController class]]) {
+        VideoCaptureController *vcc = (VideoCaptureController *)videoTrack.captureController;
+        capturer = vcc.capturer;
+    } else if ([videoTrack.captureController isKindOfClass:[VideoFileCaptureController class]]) {
+        VideoFileCaptureController *vfcc = (VideoFileCaptureController *)videoTrack.captureController;
+        capturer = vfcc.capturer;
+    }
+    
+    if (capturer) {
+        capturer.delegate = self.videoEffectProcessor;
+        NSLog(@"🔗 Video effects delegate set for capturer: %@", capturer);
+    } else {
+        NSLog(@"❌ No capturer found for video track");
+    }
 }
 
 #pragma mark - Helpers

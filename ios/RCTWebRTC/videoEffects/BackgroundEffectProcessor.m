@@ -84,22 +84,31 @@
 - (RTCVideoFrame *)capturer:(RTCVideoCapturer *)capturer 
         didCaptureVideoFrame:(RTCVideoFrame *)frame {
     
+    NSLog(@"🎨 BackgroundEffectProcessor.didCaptureVideoFrame called");
+    
     if (!_segmentationRequest) {
+        NSLog(@"🚫 No segmentation request - returning original frame");
         return frame; // Return original if Vision not available
     }
+    
+    NSLog(@"🔍 Vision available, processing frame...");
     
     // Get the pixel buffer from the frame
     CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
     if (!pixelBuffer) {
+        NSLog(@"❌ Could not get pixel buffer from frame");
         return frame;
     }
+    NSLog(@"✅ Got pixel buffer from frame");
     
     // Process the frame
     CVPixelBufferRef processedBuffer = [self processPixelBuffer:pixelBuffer];
     if (!processedBuffer) {
+        NSLog(@"❌ Could not process pixel buffer");
         CVPixelBufferRelease(pixelBuffer);
         return frame;
     }
+    NSLog(@"✅ Successfully processed frame with background effect");
     
     // Create new RTCVideoFrame with processed buffer
     RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
@@ -197,28 +206,47 @@
 }
 
 - (CVPixelBufferRef)processPixelBuffer:(CVPixelBufferRef)inputBuffer {
+    NSLog(@"🔄 Starting processPixelBuffer...");
+    
     if (@available(iOS 15.0, *)) {
+        NSLog(@"📱 iOS 15+ available, performing segmentation...");
         // Perform person segmentation
         VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] 
             initWithCVPixelBuffer:inputBuffer options:@{}];
         
         NSError *error = nil;
-        [handler performRequests:@[_segmentationRequest] error:&error];
+        BOOL success = [handler performRequests:@[_segmentationRequest] error:&error];
         
         if (error) {
-            NSLog(@"Segmentation error: %@", error);
+            NSLog(@"❌ Segmentation error: %@", error);
             return NULL;
         }
         
+        if (!success) {
+            NSLog(@"❌ Segmentation request failed - creating fallback solid background for testing");
+            // Create a simple solid background for testing on simulator
+            return [self createSolidBackground:inputBuffer];
+        }
+        
+        NSLog(@"📊 Segmentation request completed, checking results...");
         VNPixelBufferObservation *observation = _segmentationRequest.results.firstObject;
         if (!observation) {
+            NSLog(@"❌ No segmentation observation found");
             return NULL;
         }
         
+        NSLog(@"🎭 Observation found, applying background effect...");
         // Apply background replacement
-        return [self applyBackgroundEffect:inputBuffer withMask:observation.pixelBuffer];
+        CVPixelBufferRef result = [self applyBackgroundEffect:inputBuffer withMask:observation.pixelBuffer];
+        if (result) {
+            NSLog(@"✨ Background effect applied successfully!");
+        } else {
+            NSLog(@"❌ Failed to apply background effect");
+        }
+        return result;
         
     } else {
+        NSLog(@"⚠️ iOS 15+ not available, returning original buffer");
         // Fallback for older iOS versions - return original
         CVPixelBufferRetain(inputBuffer);
         return inputBuffer;
@@ -277,6 +305,62 @@
         [_ciContext render:outputImage toCVPixelBuffer:outputBuffer];
     }
     
+    return outputBuffer;
+}
+
+- (CVPixelBufferRef)createSolidBackground:(CVPixelBufferRef)inputBuffer {
+    NSLog(@"🎨 Creating solid background fallback (no person segmentation)");
+    
+    // Get dimensions from input buffer
+    size_t width = CVPixelBufferGetWidth(inputBuffer);
+    size_t height = CVPixelBufferGetHeight(inputBuffer);
+    
+    // Create output buffer with same dimensions
+    CVPixelBufferRef outputBuffer = NULL;
+    CVReturn result = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        width,
+        height,
+        kCVPixelFormatType_32BGRA,
+        (__bridge CFDictionaryRef)_pixelBufferAttributes,
+        &outputBuffer
+    );
+    
+    if (result != kCVReturnSuccess || !outputBuffer) {
+        NSLog(@"❌ Failed to create output buffer");
+        return NULL;
+    }
+    
+    // Lock the buffer for writing
+    CVPixelBufferLockBaseAddress(outputBuffer, 0);
+    void *baseAddress = CVPixelBufferGetBaseAddress(outputBuffer);
+    size_t bytesPerRow = CVPixelBufferGetBytesPerRow(outputBuffer);
+    
+    // Get background color components
+    CGFloat red, green, blue, alpha;
+    [_backgroundColor getRed:&red green:&green blue:&blue alpha:&alpha];
+    
+    // Convert to 0-255 range
+    uint8_t r = (uint8_t)(red * 255);
+    uint8_t g = (uint8_t)(green * 255);  
+    uint8_t b = (uint8_t)(blue * 255);
+    uint8_t a = (uint8_t)(alpha * 255);
+    
+    // Fill buffer with solid color (BGRA format)
+    uint8_t *pixelData = (uint8_t *)baseAddress;
+    for (size_t y = 0; y < height; y++) {
+        for (size_t x = 0; x < width; x++) {
+            size_t offset = y * bytesPerRow + x * 4;
+            pixelData[offset + 0] = b;  // Blue
+            pixelData[offset + 1] = g;  // Green
+            pixelData[offset + 2] = r;  // Red
+            pixelData[offset + 3] = a;  // Alpha
+        }
+    }
+    
+    CVPixelBufferUnlockBaseAddress(outputBuffer, 0);
+    
+    NSLog(@"✅ Created solid %@ background", _backgroundColor);
     return outputBuffer;
 }
 

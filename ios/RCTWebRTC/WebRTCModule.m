@@ -10,6 +10,7 @@
 #import "WebRTCModule+RTCPeerConnection.h"
 #import "WebRTCModule.h"
 #import "WebRTCModuleOptions.h"
+#import "BackgroundEffectProcessorProvider.h"
 
 @interface WebRTCModule ()
 @end
@@ -99,6 +100,11 @@
         dispatch_queue_attr_t attributes =
             dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, -1);
         _workerQueue = dispatch_queue_create("WebRTCModule.queue", attributes);
+        
+        // Register background effect processors
+        NSLog(@"[WebRTCModule] Registering background effect processors...");
+        [BackgroundEffectProcessorProvider registerProcessors];
+        NSLog(@"[WebRTCModule] Background effect processors registered");
     }
 
     return self;

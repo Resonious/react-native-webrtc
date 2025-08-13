@@ -2,6 +2,7 @@
 
 #import <Foundation/Foundation.h>
 #import <WebRTC/RTCVideoSource.h>
+#import <WebRTC/RTCVideoCapturer.h>
 #import <AVFoundation/AVFoundation.h>
 
 #import "CaptureController.h"
@@ -13,6 +14,9 @@
 @property(nonatomic, readonly, assign) int width;
 @property(nonatomic, readonly, assign) int height;
 @property(nonatomic, readonly, assign) int frameRate;
+
+// Add capturer property to be compatible with video effects system
+@property(nonatomic, readonly, strong) RTCVideoCapturer *capturer;
 
 - (instancetype)initWithVideoSource:(RTCVideoSource *)videoSource 
                        videoFileURL:(NSURL *)videoFileURL

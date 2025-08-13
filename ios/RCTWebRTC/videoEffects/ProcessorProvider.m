@@ -9,11 +9,15 @@ static NSMutableDictionary<NSString *, NSObject<VideoFrameProcessorDelegate> *> 
 }
 
 + (NSObject<VideoFrameProcessorDelegate> *)getProcessor:(NSString *)name {
-    return [processorMap objectForKey:name];
+    NSObject<VideoFrameProcessorDelegate> *processor = [processorMap objectForKey:name];
+    NSLog(@"[ProcessorProvider] Getting processor '%@': %@", name, processor);
+    return processor;
 }
 
 + (void)addProcessor:(NSObject<VideoFrameProcessorDelegate> *)processor forName:(NSString *)name {
+    NSLog(@"[ProcessorProvider] Adding processor '%@': %@", name, processor);
     [processorMap setObject:processor forKey:name];
+    NSLog(@"[ProcessorProvider] Total processors registered: %lu", (unsigned long)[processorMap count]);
 }
 
 + (void)removeProcessor:(NSString *)name {

@@ -5,6 +5,13 @@
 #import <WebRTC/RTCCVPixelBuffer.h>
 #import <WebRTC/RTCVideoFrame.h>
 
+// Minimal RTCVideoCapturer subclass for video effects compatibility
+@interface VideoFileVideoCapturer : RTCVideoCapturer
+@end
+
+@implementation VideoFileVideoCapturer
+@end
+
 @interface VideoFileCaptureController ()
 
 @property(nonatomic, strong) RTCVideoSource *videoSource;
@@ -18,6 +25,7 @@
 @property(nonatomic, strong) AVAssetReader *assetReader;
 @property(nonatomic, strong) AVAssetReaderTrackOutput *trackOutput;
 @property(nonatomic, strong) AVAsset *asset;
+@property(nonatomic, strong) RTCVideoCapturer *capturer;
 
 @end
 
@@ -47,6 +55,9 @@
         
         // Create capture queue
         self.captureQueue = dispatch_queue_create("com.webrtc.videofile.capture", DISPATCH_QUEUE_SERIAL);
+        
+        // Create capturer for video effects compatibility
+        self.capturer = [[VideoFileVideoCapturer alloc] initWithDelegate:videoSource];
     }
     
     return self;
@@ -164,8 +175,20 @@
                                                             rotation:RTCVideoRotation_0
                                                          timeStampNs:timeStampNs];
         
-        // Send frame to video source (using self as capturer since we don't have RTCCameraCapturer)
-        [self.videoSource capturer:(RTCVideoCapturer *)self didCaptureVideoFrame:frame];
+        // Send frame through the capturer's delegate (which may be a video effect processor)
+        if (self.capturer.delegate) {
+            // Check if delegate is a VideoEffectProcessor that can process frames
+            if ([self.capturer.delegate respondsToSelector:@selector(capturer:didCaptureVideoFrame:)]) {
+                // Call the delegate method - for VideoEffectProcessor this processes and forwards the frame
+                [(id)self.capturer.delegate capturer:self.capturer didCaptureVideoFrame:frame];
+            } else {
+                // Delegate doesn't process frames, send directly to video source
+                [self.videoSource capturer:self.capturer didCaptureVideoFrame:frame];
+            }
+        } else {
+            // No delegate, send directly to video source
+            [self.videoSource capturer:self.capturer didCaptureVideoFrame:frame];
+        }
     }
     
     CFRelease(sampleBuffer);
