@@ -101,6 +101,10 @@ export default class MediaStreamTrack extends EventTarget<MediaStreamTrackEventM
         this._readyState = 'ended';
     }
 
+    setVideoEffects(names: string[]) {
+      this._setVideoEffects(names);
+    }
+
     /**
      * Private / custom API for switching the cameras on the fly, without the
      * need for adding / removing tracks or doing any SDP renegotiation.
