@@ -84,6 +84,24 @@
 - (RTCVideoFrame *)capturer:(RTCVideoCapturer *)capturer 
         didCaptureVideoFrame:(RTCVideoFrame *)frame {
     
+    // Timings on ancient iPhone 6s
+    /*
+     default    22:38:22.837023+0900    GumTestApp    📐 Mask size: 2016x1512
+     default    22:38:22.838964+0900    GumTestApp    ⏱️   CIImage creation: 1.87ms
+     default    22:38:22.839225+0900    GumTestApp    ⏱️   Background creation: 0.02ms
+     default    22:38:22.839500+0900    GumTestApp    ⏱️   Mask scaling: 0.01ms
+     default    22:38:22.839739+0900    GumTestApp    ⏱️   Threshold filter: 0.10ms
+     default    22:38:22.839920+0900    GumTestApp    ⏱️   Blend filter: 0.04ms
+     default    22:38:22.849946+0900    GumTestApp    ⏱️   CIContext render: 9.32ms
+     default    22:38:22.850241+0900    GumTestApp    ⏱️   Buffer creation & render: 10.39ms
+     default    22:38:22.850354+0900    GumTestApp    ⏱️ applyBackgroundEffect: 13.31ms
+     default    22:38:22.851130+0900    GumTestApp    ⏱️ processPixelBuffer: 961.24ms
+     default    22:38:22.851304+0900    GumTestApp    ⏱️ Frame creation: 0.01ms
+     default    22:38:22.851416+0900    GumTestApp    ⏱️ TOTAL didCaptureVideoFrame: 961.62ms
+     default    22:38:22.852238+0900    GumTestApp    ⏱️ pixelBufferFromFrame: 0.00ms
+     default    22:38:23.809263+0900    GumTestApp    ⏱️ Vision segmentation request: 947.47ms
+     */
+    
     // NSLog(@"🎨 BackgroundEffectProcessor.didCaptureVideoFrame called");
     
     if (!_segmentationRequest) {
