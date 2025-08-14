@@ -1,9 +1,9 @@
 {
-  "name": "@livekit/react-native-webrtc",
+  "name": "@baillie/react-native-webrtc",
   "version": "137.0.1",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/livekit/react-native-webrtc.git"
+    "url": "git+https://github.com/Resonious/react-native-webrtc.git"
   },
   "description": "WebRTC for React Native",
   "license": "MIT",
@@ -34,7 +34,7 @@
     "format": "tools/format.sh"
   },
   "bugs": {
-    "url": "https://github.com/livekit/react-native-webrtc/issues"
+    "url": "https://github.com/Resonious/react-native-webrtc/issues"
   },
   "devDependencies": {
     "@types/debug": "4.1.7",
