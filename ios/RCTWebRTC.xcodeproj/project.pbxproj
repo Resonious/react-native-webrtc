@@ -22,6 +22,22 @@
 		4EE3A8D225B841DD00FAA24A /* CaptureController.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3A8C925B841DD00FAA24A /* CaptureController.m */; };
 		4EE3A8D325B841DD00FAA24A /* ScreenCaptureController.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3A8CC25B841DD00FAA24A /* ScreenCaptureController.m */; };
 		4EE3A8D425B841DD00FAA24A /* ScreenCapturer.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3A8CD25B841DD00FAA24A /* ScreenCapturer.m */; };
+		AC64BA162E4E0D8D004182A8 /* BackgroundEffectProcessor.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA152E4E0D8D004182A8 /* BackgroundEffectProcessor.m */; };
+		AC64BA1F2E4E0D9F004182A8 /* ProcessorProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA1B2E4E0D9F004182A8 /* ProcessorProvider.m */; };
+		AC64BA202E4E0D9F004182A8 /* BackgroundEffectProcessorProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA192E4E0D9F004182A8 /* BackgroundEffectProcessorProvider.m */; };
+		AC64BA212E4E0D9F004182A8 /* VideoEffectProcessor.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA1D2E4E0D9F004182A8 /* VideoEffectProcessor.m */; };
+		AC64BA3A2E4E0EEE004182A8 /* SampleBufferVideoCallView.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA272E4E0EEE004182A8 /* SampleBufferVideoCallView.m */; };
+		AC64BA3B2E4E0EEE004182A8 /* VideoFileCaptureController.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA352E4E0EEE004182A8 /* VideoFileCaptureController.m */; };
+		AC64BA3C2E4E0EEE004182A8 /* ProcessorProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA2F2E4E0EEE004182A8 /* ProcessorProvider.m */; };
+		AC64BA3D2E4E0EEE004182A8 /* BackgroundEffectProcessorProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA2D2E4E0EEE004182A8 /* BackgroundEffectProcessorProvider.m */; };
+		AC64BA3E2E4E0EEE004182A8 /* VideoEffectProcessor.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA312E4E0EEE004182A8 /* VideoEffectProcessor.m */; };
+		AC64BA3F2E4E0EEE004182A8 /* PIPController.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA252E4E0EEE004182A8 /* PIPController.m */; };
+		AC64BA402E4E0EEE004182A8 /* SerializeUtils.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA292E4E0EEE004182A8 /* SerializeUtils.m */; };
+		AC64BA412E4E0EEE004182A8 /* I420Converter.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA232E4E0EEE004182A8 /* I420Converter.m */; };
+		AC64BA422E4E0EEE004182A8 /* BackgroundEffectProcessor.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA2B2E4E0EEE004182A8 /* BackgroundEffectProcessor.m */; };
+		AC64BA432E4E0EEE004182A8 /* WebRTCModule+RTCFrameCryptor.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA362E4E0EEE004182A8 /* WebRTCModule+RTCFrameCryptor.m */; };
+		AC64BA442E4E0EEE004182A8 /* WebRTCModuleOptions.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA392E4E0EEE004182A8 /* WebRTCModuleOptions.m */; };
+		AC64BA452E4E0EEE004182A8 /* WebRTCModule+Transceivers.m in Sources */ = {isa = PBXBuildFile; fileRef = AC64BA372E4E0EEE004182A8 /* WebRTCModule+Transceivers.m */; };
 		D3FF699919D2664B25C9D458 /* Pods_RCTWebRTC.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20F721AD842563B66292D5B /* Pods_RCTWebRTC.framework */; };
 		D74EF94829652169000742E1 /* TrackCapturerEventsEmitter.m in Sources */ = {isa = PBXBuildFile; fileRef = D74EF94629652169000742E1 /* TrackCapturerEventsEmitter.m */; };
 		D7F0711E2C6DC91F0031F594 /* WebRTCModule+RTCAudioSession.m in Sources */ = {isa = PBXBuildFile; fileRef = D7F0711D2C6DC91F0031F594 /* WebRTCModule+RTCAudioSession.m */; };
@@ -73,6 +89,38 @@
 		4EE3A8CD25B841DD00FAA24A /* ScreenCapturer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = ScreenCapturer.m; path = RCTWebRTC/ScreenCapturer.m; sourceTree = SOURCE_ROOT; };
 		4EE3A8CE25B841DD00FAA24A /* SocketConnection.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SocketConnection.h; path = RCTWebRTC/SocketConnection.h; sourceTree = SOURCE_ROOT; };
 		A20F721AD842563B66292D5B /* Pods_RCTWebRTC.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RCTWebRTC.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC64BA152E4E0D8D004182A8 /* BackgroundEffectProcessor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = BackgroundEffectProcessor.m; path = RCTWebRTC/videoEffects/BackgroundEffectProcessor.m; sourceTree = SOURCE_ROOT; };
+		AC64BA172E4E0D9F004182A8 /* BackgroundEffectProcessor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BackgroundEffectProcessor.h; path = RCTWebRTC/videoEffects/BackgroundEffectProcessor.h; sourceTree = SOURCE_ROOT; };
+		AC64BA182E4E0D9F004182A8 /* BackgroundEffectProcessorProvider.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BackgroundEffectProcessorProvider.h; path = RCTWebRTC/videoEffects/BackgroundEffectProcessorProvider.h; sourceTree = SOURCE_ROOT; };
+		AC64BA192E4E0D9F004182A8 /* BackgroundEffectProcessorProvider.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = BackgroundEffectProcessorProvider.m; path = RCTWebRTC/videoEffects/BackgroundEffectProcessorProvider.m; sourceTree = SOURCE_ROOT; };
+		AC64BA1A2E4E0D9F004182A8 /* ProcessorProvider.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ProcessorProvider.h; path = RCTWebRTC/videoEffects/ProcessorProvider.h; sourceTree = SOURCE_ROOT; };
+		AC64BA1B2E4E0D9F004182A8 /* ProcessorProvider.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ProcessorProvider.m; path = RCTWebRTC/videoEffects/ProcessorProvider.m; sourceTree = SOURCE_ROOT; };
+		AC64BA1C2E4E0D9F004182A8 /* VideoEffectProcessor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VideoEffectProcessor.h; path = RCTWebRTC/videoEffects/VideoEffectProcessor.h; sourceTree = SOURCE_ROOT; };
+		AC64BA1D2E4E0D9F004182A8 /* VideoEffectProcessor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VideoEffectProcessor.m; path = RCTWebRTC/videoEffects/VideoEffectProcessor.m; sourceTree = SOURCE_ROOT; };
+		AC64BA1E2E4E0D9F004182A8 /* VideoFrameProcessor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VideoFrameProcessor.h; path = RCTWebRTC/videoEffects/VideoFrameProcessor.h; sourceTree = SOURCE_ROOT; };
+		AC64BA222E4E0EEE004182A8 /* I420Converter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = I420Converter.h; path = RCTWebRTC/I420Converter.h; sourceTree = SOURCE_ROOT; };
+		AC64BA232E4E0EEE004182A8 /* I420Converter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = I420Converter.m; path = RCTWebRTC/I420Converter.m; sourceTree = SOURCE_ROOT; };
+		AC64BA242E4E0EEE004182A8 /* PIPController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PIPController.h; path = RCTWebRTC/PIPController.h; sourceTree = SOURCE_ROOT; };
+		AC64BA252E4E0EEE004182A8 /* PIPController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PIPController.m; path = RCTWebRTC/PIPController.m; sourceTree = SOURCE_ROOT; };
+		AC64BA262E4E0EEE004182A8 /* SampleBufferVideoCallView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SampleBufferVideoCallView.h; path = RCTWebRTC/SampleBufferVideoCallView.h; sourceTree = SOURCE_ROOT; };
+		AC64BA272E4E0EEE004182A8 /* SampleBufferVideoCallView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SampleBufferVideoCallView.m; path = RCTWebRTC/SampleBufferVideoCallView.m; sourceTree = SOURCE_ROOT; };
+		AC64BA282E4E0EEE004182A8 /* SerializeUtils.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SerializeUtils.h; path = RCTWebRTC/SerializeUtils.h; sourceTree = SOURCE_ROOT; };
+		AC64BA292E4E0EEE004182A8 /* SerializeUtils.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SerializeUtils.m; path = RCTWebRTC/SerializeUtils.m; sourceTree = SOURCE_ROOT; };
+		AC64BA2A2E4E0EEE004182A8 /* BackgroundEffectProcessor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BackgroundEffectProcessor.h; sourceTree = "<group>"; };
+		AC64BA2B2E4E0EEE004182A8 /* BackgroundEffectProcessor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BackgroundEffectProcessor.m; sourceTree = "<group>"; };
+		AC64BA2C2E4E0EEE004182A8 /* BackgroundEffectProcessorProvider.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BackgroundEffectProcessorProvider.h; sourceTree = "<group>"; };
+		AC64BA2D2E4E0EEE004182A8 /* BackgroundEffectProcessorProvider.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BackgroundEffectProcessorProvider.m; sourceTree = "<group>"; };
+		AC64BA2E2E4E0EEE004182A8 /* ProcessorProvider.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ProcessorProvider.h; sourceTree = "<group>"; };
+		AC64BA2F2E4E0EEE004182A8 /* ProcessorProvider.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ProcessorProvider.m; sourceTree = "<group>"; };
+		AC64BA302E4E0EEE004182A8 /* VideoEffectProcessor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VideoEffectProcessor.h; sourceTree = "<group>"; };
+		AC64BA312E4E0EEE004182A8 /* VideoEffectProcessor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VideoEffectProcessor.m; sourceTree = "<group>"; };
+		AC64BA322E4E0EEE004182A8 /* VideoFrameProcessor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VideoFrameProcessor.h; sourceTree = "<group>"; };
+		AC64BA342E4E0EEE004182A8 /* VideoFileCaptureController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VideoFileCaptureController.h; path = RCTWebRTC/VideoFileCaptureController.h; sourceTree = SOURCE_ROOT; };
+		AC64BA352E4E0EEE004182A8 /* VideoFileCaptureController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VideoFileCaptureController.m; path = RCTWebRTC/VideoFileCaptureController.m; sourceTree = SOURCE_ROOT; };
+		AC64BA362E4E0EEE004182A8 /* WebRTCModule+RTCFrameCryptor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "WebRTCModule+RTCFrameCryptor.m"; path = "RCTWebRTC/WebRTCModule+RTCFrameCryptor.m"; sourceTree = SOURCE_ROOT; };
+		AC64BA372E4E0EEE004182A8 /* WebRTCModule+Transceivers.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "WebRTCModule+Transceivers.m"; path = "RCTWebRTC/WebRTCModule+Transceivers.m"; sourceTree = SOURCE_ROOT; };
+		AC64BA382E4E0EEE004182A8 /* WebRTCModuleOptions.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WebRTCModuleOptions.h; path = RCTWebRTC/WebRTCModuleOptions.h; sourceTree = SOURCE_ROOT; };
+		AC64BA392E4E0EEE004182A8 /* WebRTCModuleOptions.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WebRTCModuleOptions.m; path = RCTWebRTC/WebRTCModuleOptions.m; sourceTree = SOURCE_ROOT; };
 		D74EF94529652148000742E1 /* CapturerEventsDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CapturerEventsDelegate.h; path = RCTWebRTC/CapturerEventsDelegate.h; sourceTree = SOURCE_ROOT; };
 		D74EF94629652169000742E1 /* TrackCapturerEventsEmitter.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = TrackCapturerEventsEmitter.m; path = RCTWebRTC/TrackCapturerEventsEmitter.m; sourceTree = SOURCE_ROOT; };
 		D74EF94729652169000742E1 /* TrackCapturerEventsEmitter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TrackCapturerEventsEmitter.h; path = RCTWebRTC/TrackCapturerEventsEmitter.h; sourceTree = SOURCE_ROOT; };
@@ -124,6 +172,30 @@
 		35A222311CB493C00015FD5C /* RCTWebRTC */ = {
 			isa = PBXGroup;
 			children = (
+				AC64BA222E4E0EEE004182A8 /* I420Converter.h */,
+				AC64BA232E4E0EEE004182A8 /* I420Converter.m */,
+				AC64BA242E4E0EEE004182A8 /* PIPController.h */,
+				AC64BA252E4E0EEE004182A8 /* PIPController.m */,
+				AC64BA262E4E0EEE004182A8 /* SampleBufferVideoCallView.h */,
+				AC64BA272E4E0EEE004182A8 /* SampleBufferVideoCallView.m */,
+				AC64BA282E4E0EEE004182A8 /* SerializeUtils.h */,
+				AC64BA292E4E0EEE004182A8 /* SerializeUtils.m */,
+				AC64BA332E4E0EEE004182A8 /* videoEffects */,
+				AC64BA342E4E0EEE004182A8 /* VideoFileCaptureController.h */,
+				AC64BA352E4E0EEE004182A8 /* VideoFileCaptureController.m */,
+				AC64BA362E4E0EEE004182A8 /* WebRTCModule+RTCFrameCryptor.m */,
+				AC64BA372E4E0EEE004182A8 /* WebRTCModule+Transceivers.m */,
+				AC64BA382E4E0EEE004182A8 /* WebRTCModuleOptions.h */,
+				AC64BA392E4E0EEE004182A8 /* WebRTCModuleOptions.m */,
+				AC64BA172E4E0D9F004182A8 /* BackgroundEffectProcessor.h */,
+				AC64BA182E4E0D9F004182A8 /* BackgroundEffectProcessorProvider.h */,
+				AC64BA192E4E0D9F004182A8 /* BackgroundEffectProcessorProvider.m */,
+				AC64BA1A2E4E0D9F004182A8 /* ProcessorProvider.h */,
+				AC64BA1B2E4E0D9F004182A8 /* ProcessorProvider.m */,
+				AC64BA1C2E4E0D9F004182A8 /* VideoEffectProcessor.h */,
+				AC64BA1D2E4E0D9F004182A8 /* VideoEffectProcessor.m */,
+				AC64BA1E2E4E0D9F004182A8 /* VideoFrameProcessor.h */,
+				AC64BA152E4E0D8D004182A8 /* BackgroundEffectProcessor.m */,
 				4EE3A8A225B840DA00FAA24A /* RCTConvert+WebRTC.h */,
 				4EE3A8A125B840DA00FAA24A /* RCTConvert+WebRTC.m */,
 				4EE3A8A525B8411400FAA24A /* RTCMediaStreamTrack+React.h */,
@@ -163,6 +235,23 @@
 			name = RCTWebRTC;
 			path = ../apple/RCTWebRTC;
 			sourceTree = "<group>";
+		};
+		AC64BA332E4E0EEE004182A8 /* videoEffects */ = {
+			isa = PBXGroup;
+			children = (
+				AC64BA2A2E4E0EEE004182A8 /* BackgroundEffectProcessor.h */,
+				AC64BA2B2E4E0EEE004182A8 /* BackgroundEffectProcessor.m */,
+				AC64BA2C2E4E0EEE004182A8 /* BackgroundEffectProcessorProvider.h */,
+				AC64BA2D2E4E0EEE004182A8 /* BackgroundEffectProcessorProvider.m */,
+				AC64BA2E2E4E0EEE004182A8 /* ProcessorProvider.h */,
+				AC64BA2F2E4E0EEE004182A8 /* ProcessorProvider.m */,
+				AC64BA302E4E0EEE004182A8 /* VideoEffectProcessor.h */,
+				AC64BA312E4E0EEE004182A8 /* VideoEffectProcessor.m */,
+				AC64BA322E4E0EEE004182A8 /* VideoFrameProcessor.h */,
+			);
+			name = videoEffects;
+			path = RCTWebRTC/videoEffects;
+			sourceTree = SOURCE_ROOT;
 		};
 		DEFDBC25256574F500344B23 /* Frameworks */ = {
 			isa = PBXGroup;
@@ -256,13 +345,29 @@
 			buildActionMask = 2147483647;
 			files = (
 				4EE3A8C525B8417800FAA24A /* WebRTCModule+VideoTrackAdapter.m in Sources */,
+				AC64BA3A2E4E0EEE004182A8 /* SampleBufferVideoCallView.m in Sources */,
+				AC64BA3B2E4E0EEE004182A8 /* VideoFileCaptureController.m in Sources */,
+				AC64BA3C2E4E0EEE004182A8 /* ProcessorProvider.m in Sources */,
+				AC64BA3D2E4E0EEE004182A8 /* BackgroundEffectProcessorProvider.m in Sources */,
+				AC64BA3E2E4E0EEE004182A8 /* VideoEffectProcessor.m in Sources */,
+				AC64BA3F2E4E0EEE004182A8 /* PIPController.m in Sources */,
+				AC64BA402E4E0EEE004182A8 /* SerializeUtils.m in Sources */,
+				AC64BA412E4E0EEE004182A8 /* I420Converter.m in Sources */,
+				AC64BA422E4E0EEE004182A8 /* BackgroundEffectProcessor.m in Sources */,
+				AC64BA432E4E0EEE004182A8 /* WebRTCModule+RTCFrameCryptor.m in Sources */,
+				AC64BA442E4E0EEE004182A8 /* WebRTCModuleOptions.m in Sources */,
+				AC64BA452E4E0EEE004182A8 /* WebRTCModule+Transceivers.m in Sources */,
 				4EE3A8BA25B8415900FAA24A /* WebRTCModule+RTCDataChannel.m in Sources */,
 				4EE3A8B625B8414A00FAA24A /* WebRTCModule+Permissions.m in Sources */,
 				DEC96577264176C10052DB35 /* DataChannelWrapper.m in Sources */,
+				AC64BA1F2E4E0D9F004182A8 /* ProcessorProvider.m in Sources */,
+				AC64BA202E4E0D9F004182A8 /* BackgroundEffectProcessorProvider.m in Sources */,
+				AC64BA212E4E0D9F004182A8 /* VideoEffectProcessor.m in Sources */,
 				4EE3A8D425B841DD00FAA24A /* ScreenCapturer.m in Sources */,
 				0BDDA6E020C18B6B00B38B45 /* VideoCaptureController.m in Sources */,
 				4EE3A8A725B8411400FAA24A /* RTCMediaStreamTrack+React.m in Sources */,
 				4EC498BC25B8777F00E76218 /* ScreenCapturePickerViewManager.m in Sources */,
+				AC64BA162E4E0D8D004182A8 /* BackgroundEffectProcessor.m in Sources */,
 				4EE3A8B225B8414000FAA24A /* WebRTCModule.m in Sources */,
 				4EE3A8D225B841DD00FAA24A /* CaptureController.m in Sources */,
 				D7F0711E2C6DC91F0031F594 /* WebRTCModule+RTCAudioSession.m in Sources */,
