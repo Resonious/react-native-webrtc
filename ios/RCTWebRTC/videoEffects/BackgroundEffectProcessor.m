@@ -17,7 +17,7 @@
 
 - (instancetype)initWithBackgroundColor:(UIColor *)color {
     return [self initWithBackgroundColor:color 
-                            qualityLevel:1]; // VNPersonSegmentationQualityLevelBalanced
+                            qualityLevel:0]; // VNPersonSegmentationQualityLevelBalanced
 }
 
 - (instancetype)initWithBackgroundColor:(UIColor *)color 
@@ -84,42 +84,44 @@
 - (RTCVideoFrame *)capturer:(RTCVideoCapturer *)capturer 
         didCaptureVideoFrame:(RTCVideoFrame *)frame {
     
-    NSLog(@"🎨 BackgroundEffectProcessor.didCaptureVideoFrame called");
+    // NSLog(@"🎨 BackgroundEffectProcessor.didCaptureVideoFrame called");
     
     if (!_segmentationRequest) {
         NSLog(@"🚫 No segmentation request - returning original frame");
         return frame; // Return original if Vision not available
     }
     
-    NSLog(@"🔍 Vision available, processing frame...");
+    // NSLog(@"🔍 Vision available, processing frame...");
     
-    // Get the pixel buffer from the frame
-    CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
-    if (!pixelBuffer) {
-        NSLog(@"❌ Could not get pixel buffer from frame");
-        return frame;
-    }
-    NSLog(@"✅ Got pixel buffer from frame");
-    
-    // Process the frame
-    CVPixelBufferRef processedBuffer = [self processPixelBuffer:pixelBuffer];
-    if (!processedBuffer) {
-        NSLog(@"❌ Could not process pixel buffer");
+    @autoreleasepool {
+        // Get the pixel buffer from the frame
+        CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
+        if (!pixelBuffer) {
+            NSLog(@"❌ Could not get pixel buffer from frame");
+            return frame;
+        }
+        // NSLog(@"✅ Got pixel buffer from frame");
+        
+        // Process the frame
+        CVPixelBufferRef processedBuffer = [self processPixelBuffer:pixelBuffer];
+        if (!processedBuffer) {
+            NSLog(@"❌ Could not process pixel buffer");
+            CVPixelBufferRelease(pixelBuffer);
+            return frame;
+        }
+        // NSLog(@"✅ Successfully processed frame with background effect");
+        
+        // Create new RTCVideoFrame with processed buffer
+        RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
+        RTCVideoFrame *processedFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                                      rotation:frame.rotation
+                                                                   timeStampNs:frame.timeStampNs];
+        
         CVPixelBufferRelease(pixelBuffer);
-        return frame;
+        CVPixelBufferRelease(processedBuffer);
+        
+        return processedFrame;
     }
-    NSLog(@"✅ Successfully processed frame with background effect");
-    
-    // Create new RTCVideoFrame with processed buffer
-    RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
-    RTCVideoFrame *processedFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
-                                                                  rotation:frame.rotation
-                                                               timeStampNs:frame.timeStampNs];
-    
-    CVPixelBufferRelease(pixelBuffer);
-    CVPixelBufferRelease(processedBuffer);
-    
-    return processedFrame;
 }
 
 - (CVPixelBufferRef)pixelBufferFromFrame:(RTCVideoFrame *)frame {
@@ -153,6 +155,7 @@
         }
         
         // Convert I420 to BGRA
+        NSLog(@"⚠️ Converting to BGRA!");
         [self convertI420Buffer:i420Buffer toPixelBuffer:pixelBuffer];
         
         return pixelBuffer;
@@ -206,44 +209,47 @@
 }
 
 - (CVPixelBufferRef)processPixelBuffer:(CVPixelBufferRef)inputBuffer {
-    NSLog(@"🔄 Starting processPixelBuffer...");
+    // NSLog(@"🔄 Starting processPixelBuffer...");
     
     if (@available(iOS 15.0, *)) {
-        NSLog(@"📱 iOS 15+ available, performing segmentation...");
-        // Perform person segmentation
-        VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] 
-            initWithCVPixelBuffer:inputBuffer options:@{}];
+        // NSLog(@"📱 iOS 15+ available, performing segmentation...");
         
-        NSError *error = nil;
-        BOOL success = [handler performRequests:@[_segmentationRequest] error:&error];
-        
-        if (error) {
-            NSLog(@"❌ Segmentation error: %@", error);
-            return NULL;
+        @autoreleasepool {
+            // Perform person segmentation
+            VNImageRequestHandler *handler = [[VNImageRequestHandler alloc]
+                initWithCVPixelBuffer:inputBuffer options:@{}];
+            
+            NSError *error = nil;
+            BOOL success = [handler performRequests:@[_segmentationRequest] error:&error];
+            
+            if (error) {
+                NSLog(@"❌ Segmentation error: %@", error);
+                return NULL;
+            }
+            
+            if (!success) {
+                NSLog(@"❌ Segmentation request failed - creating fallback solid background for testing");
+                // Create a simple solid background for testing on simulator
+                return [self createSolidBackground:inputBuffer];
+            }
+            
+            // NSLog(@"📊 Segmentation request completed, checking results...");
+            VNPixelBufferObservation *observation = _segmentationRequest.results.firstObject;
+            if (!observation) {
+                NSLog(@"❌ No segmentation observation found");
+                return NULL;
+            }
+            
+            // NSLog(@"🎭 Observation found, applying background effect...");
+            // Apply background replacement
+            CVPixelBufferRef result = [self applyBackgroundEffect:inputBuffer withMask:observation.pixelBuffer];
+            if (result) {
+                // NSLog(@"✨ Background effect applied successfully!");
+            } else {
+                NSLog(@"❌ Failed to apply background effect");
+            }
+            return result;
         }
-        
-        if (!success) {
-            NSLog(@"❌ Segmentation request failed - creating fallback solid background for testing");
-            // Create a simple solid background for testing on simulator
-            return [self createSolidBackground:inputBuffer];
-        }
-        
-        NSLog(@"📊 Segmentation request completed, checking results...");
-        VNPixelBufferObservation *observation = _segmentationRequest.results.firstObject;
-        if (!observation) {
-            NSLog(@"❌ No segmentation observation found");
-            return NULL;
-        }
-        
-        NSLog(@"🎭 Observation found, applying background effect...");
-        // Apply background replacement
-        CVPixelBufferRef result = [self applyBackgroundEffect:inputBuffer withMask:observation.pixelBuffer];
-        if (result) {
-            NSLog(@"✨ Background effect applied successfully!");
-        } else {
-            NSLog(@"❌ Failed to apply background effect");
-        }
-        return result;
         
     } else {
         NSLog(@"⚠️ iOS 15+ not available, returning original buffer");
@@ -256,56 +262,58 @@
 - (CVPixelBufferRef)applyBackgroundEffect:(CVPixelBufferRef)inputBuffer 
                                   withMask:(CVPixelBufferRef)maskBuffer {
     
-    // Create CIImages
-    CIImage *inputImage = [CIImage imageWithCVPixelBuffer:inputBuffer];
-    CIImage *maskImage = [CIImage imageWithCVPixelBuffer:maskBuffer];
-    
-    // Get background color components
-    CGFloat red, green, blue, alpha;
-    [_backgroundColor getRed:&red green:&green blue:&blue alpha:&alpha];
-    
-    // Create solid color background
-    CIColor *ciBackgroundColor = [CIColor colorWithRed:red green:green blue:blue alpha:alpha];
-    CIImage *backgroundImage = [CIImage imageWithColor:ciBackgroundColor];
-    backgroundImage = [backgroundImage imageByCroppingToRect:inputImage.extent];
-    
-    // Resize mask to match input size if needed
-    CGAffineTransform scaleTransform = CGAffineTransformMakeScale(
-        inputImage.extent.size.width / maskImage.extent.size.width,
-        inputImage.extent.size.height / maskImage.extent.size.height
-    );
-    maskImage = [maskImage imageByApplyingTransform:scaleTransform];
-    
-    // Apply threshold to mask (convert confidence values to binary)
-    CIFilter *thresholdFilter = [CIFilter filterWithName:@"CIColorThreshold"];
-    [thresholdFilter setValue:maskImage forKey:kCIInputImageKey];
-    [thresholdFilter setValue:@(0.5) forKey:@"inputThreshold"];
-    CIImage *binaryMask = thresholdFilter.outputImage;
-    
-    // Blend person over background using mask
-    CIFilter *blendFilter = [CIFilter filterWithName:@"CIBlendWithMask"];
-    [blendFilter setValue:inputImage forKey:kCIInputImageKey];
-    [blendFilter setValue:backgroundImage forKey:kCIInputBackgroundImageKey];
-    [blendFilter setValue:binaryMask forKey:kCIInputMaskImageKey];
-    
-    CIImage *outputImage = blendFilter.outputImage;
-    
-    // Create output pixel buffer
-    CVPixelBufferRef outputBuffer = NULL;
-    CVPixelBufferCreate(
-        kCFAllocatorDefault,
-        CVPixelBufferGetWidth(inputBuffer),
-        CVPixelBufferGetHeight(inputBuffer),
-        CVPixelBufferGetPixelFormatType(inputBuffer),
-        (__bridge CFDictionaryRef)_pixelBufferAttributes,
-        &outputBuffer
-    );
-    
-    if (outputBuffer) {
-        [_ciContext render:outputImage toCVPixelBuffer:outputBuffer];
+    @autoreleasepool {
+        // Create CIImages
+        CIImage *inputImage = [CIImage imageWithCVPixelBuffer:inputBuffer];
+        CIImage *maskImage = [CIImage imageWithCVPixelBuffer:maskBuffer];
+        
+        // Get background color components
+        CGFloat red, green, blue, alpha;
+        [_backgroundColor getRed:&red green:&green blue:&blue alpha:&alpha];
+        
+        // Create solid color background
+        CIColor *ciBackgroundColor = [CIColor colorWithRed:red green:green blue:blue alpha:alpha];
+        CIImage *backgroundImage = [CIImage imageWithColor:ciBackgroundColor];
+        backgroundImage = [backgroundImage imageByCroppingToRect:inputImage.extent];
+        
+        // Resize mask to match input size if needed
+        CGAffineTransform scaleTransform = CGAffineTransformMakeScale(
+            inputImage.extent.size.width / maskImage.extent.size.width,
+            inputImage.extent.size.height / maskImage.extent.size.height
+        );
+        maskImage = [maskImage imageByApplyingTransform:scaleTransform];
+        
+        // Apply threshold to mask (convert confidence values to binary)
+        CIFilter *thresholdFilter = [CIFilter filterWithName:@"CIColorThreshold"];
+        [thresholdFilter setValue:maskImage forKey:kCIInputImageKey];
+        [thresholdFilter setValue:@(0.5) forKey:@"inputThreshold"];
+        CIImage *binaryMask = thresholdFilter.outputImage;
+        
+        // Blend person over background using mask
+        CIFilter *blendFilter = [CIFilter filterWithName:@"CIBlendWithMask"];
+        [blendFilter setValue:inputImage forKey:kCIInputImageKey];
+        [blendFilter setValue:backgroundImage forKey:kCIInputBackgroundImageKey];
+        [blendFilter setValue:binaryMask forKey:kCIInputMaskImageKey];
+        
+        CIImage *outputImage = blendFilter.outputImage;
+        
+        // Create output pixel buffer
+        CVPixelBufferRef outputBuffer = NULL;
+        CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            CVPixelBufferGetWidth(inputBuffer),
+            CVPixelBufferGetHeight(inputBuffer),
+            CVPixelBufferGetPixelFormatType(inputBuffer),
+            (__bridge CFDictionaryRef)_pixelBufferAttributes,
+            &outputBuffer
+        );
+        
+        if (outputBuffer) {
+            [_ciContext render:outputImage toCVPixelBuffer:outputBuffer];
+        }
+        
+        return outputBuffer;
     }
-    
-    return outputBuffer;
 }
 
 - (CVPixelBufferRef)createSolidBackground:(CVPixelBufferRef)inputBuffer {
