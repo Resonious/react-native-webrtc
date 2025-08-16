@@ -98,7 +98,7 @@
     // Check if we're already processing
     @synchronized(_processingLock) {
         if (_isProcessing) {
-            // Already processing - return last completed frame or original
+            // Already processing - return last completed frame or solid color
             if (_lastCompletedFrame) {
                 // Return cached frame with current timestamp to maintain timing
                 RTCVideoFrame *cachedFrame = [[RTCVideoFrame alloc] initWithBuffer:_lastCompletedFrame.buffer
@@ -107,9 +107,27 @@
                 // NSLog(@"⏭️ Skipping frame - returning cached frame");
                 return cachedFrame;
             } else {
-                // No cached frame yet, return original
-                // NSLog(@"⏭️ Skipping frame - no cache yet, returning original");
-                return frame;
+                // No cached frame yet, return solid color background
+                CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
+                if (!pixelBuffer) {
+                    return frame;
+                }
+                
+                CVPixelBufferRef solidBuffer = [self createSolidBackground:pixelBuffer];
+                CVPixelBufferRelease(pixelBuffer);
+                
+                if (!solidBuffer) {
+                    return frame;
+                }
+                
+                RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:solidBuffer];
+                RTCVideoFrame *solidFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                                         rotation:frame.rotation
+                                                                      timeStampNs:frame.timeStampNs];
+                CVPixelBufferRelease(solidBuffer);
+                
+                // NSLog(@"⏭️ Skipping frame - no cache yet, returning solid color");
+                return solidFrame;
             }
         }
         _isProcessing = YES;
@@ -161,7 +179,7 @@
         }
     });
     
-    // Return last completed frame or original while processing
+    // Return last completed frame or solid color while processing
     @synchronized(_processingLock) {
         if (_lastCompletedFrame) {
             // Return cached frame with current timestamp
@@ -170,8 +188,27 @@
                                                                    timeStampNs:frame.timeStampNs];
             return cachedFrame;
         } else {
-            // First frame - return original while processing
-            return frame;
+            // First frame - create solid color frame while processing
+            CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
+            if (!pixelBuffer) {
+                return frame;
+            }
+            
+            CVPixelBufferRef solidBuffer = [self createSolidBackground:pixelBuffer];
+            CVPixelBufferRelease(pixelBuffer);
+            
+            if (!solidBuffer) {
+                return frame;
+            }
+            
+            RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:solidBuffer];
+            RTCVideoFrame *solidFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                                     rotation:frame.rotation
+                                                                  timeStampNs:frame.timeStampNs];
+            CVPixelBufferRelease(solidBuffer);
+            
+            NSLog(@"🎨 Returning solid color frame for first frame");
+            return solidFrame;
         }
     }
 }
