@@ -1,7 +1,6 @@
 #import "AppDelegate.h"
 
 #import <React/RCTBundleURLProvider.h>
-#import "BackgroundEffectProcessorProvider.h"
 
 @implementation AppDelegate
 

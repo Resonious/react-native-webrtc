@@ -17,7 +17,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Colors } from 'react-native/Libraries/NewAppScreen';
-import { mediaDevices, startIOSPIP, stopIOSPIP, RTCPIPView } from '@livekit/react-native-webrtc';
+import { mediaDevices, startIOSPIP, stopIOSPIP, RTCPIPView } from '@baillie/react-native-webrtc';
 
 
 const App = () => {

@@ -9,6 +9,9 @@
     dispatch_queue_t _processingQueue;
     CVPixelBufferPoolRef _pixelBufferPool;
     NSDictionary *_pixelBufferAttributes;
+    RTCVideoFrame *_lastCompletedFrame;
+    BOOL _isProcessing;
+    NSObject *_processingLock;
 }
 
 - (instancetype)init {
@@ -27,6 +30,9 @@
         _backgroundColor = color;
         _qualityLevel = quality;
         _processingQueue = dispatch_queue_create("com.webrtc.backgroundeffect", DISPATCH_QUEUE_SERIAL);
+        _processingLock = [[NSObject alloc] init];
+        _isProcessing = NO;
+        _lastCompletedFrame = nil;
         
         [self setupVision];
         [self setupCoreImage];
@@ -84,61 +90,89 @@
 - (RTCVideoFrame *)capturer:(RTCVideoCapturer *)capturer 
         didCaptureVideoFrame:(RTCVideoFrame *)frame {
     
-    // Timings on ancient iPhone 6s
-    /*
-     default    22:38:22.837023+0900    GumTestApp    📐 Mask size: 2016x1512
-     default    22:38:22.838964+0900    GumTestApp    ⏱️   CIImage creation: 1.87ms
-     default    22:38:22.839225+0900    GumTestApp    ⏱️   Background creation: 0.02ms
-     default    22:38:22.839500+0900    GumTestApp    ⏱️   Mask scaling: 0.01ms
-     default    22:38:22.839739+0900    GumTestApp    ⏱️   Threshold filter: 0.10ms
-     default    22:38:22.839920+0900    GumTestApp    ⏱️   Blend filter: 0.04ms
-     default    22:38:22.849946+0900    GumTestApp    ⏱️   CIContext render: 9.32ms
-     default    22:38:22.850241+0900    GumTestApp    ⏱️   Buffer creation & render: 10.39ms
-     default    22:38:22.850354+0900    GumTestApp    ⏱️ applyBackgroundEffect: 13.31ms
-     default    22:38:22.851130+0900    GumTestApp    ⏱️ processPixelBuffer: 961.24ms
-     default    22:38:22.851304+0900    GumTestApp    ⏱️ Frame creation: 0.01ms
-     default    22:38:22.851416+0900    GumTestApp    ⏱️ TOTAL didCaptureVideoFrame: 961.62ms
-     default    22:38:22.852238+0900    GumTestApp    ⏱️ pixelBufferFromFrame: 0.00ms
-     default    22:38:23.809263+0900    GumTestApp    ⏱️ Vision segmentation request: 947.47ms
-     */
-    
-    // NSLog(@"🎨 BackgroundEffectProcessor.didCaptureVideoFrame called");
-    
     if (!_segmentationRequest) {
         NSLog(@"🚫 No segmentation request - returning original frame");
         return frame; // Return original if Vision not available
     }
     
-    // NSLog(@"🔍 Vision available, processing frame...");
+    // Check if we're already processing
+    @synchronized(_processingLock) {
+        if (_isProcessing) {
+            // Already processing - return last completed frame or original
+            if (_lastCompletedFrame) {
+                // Return cached frame with current timestamp to maintain timing
+                RTCVideoFrame *cachedFrame = [[RTCVideoFrame alloc] initWithBuffer:_lastCompletedFrame.buffer
+                                                                          rotation:frame.rotation
+                                                                       timeStampNs:frame.timeStampNs];
+                // NSLog(@"⏭️ Skipping frame - returning cached frame");
+                return cachedFrame;
+            } else {
+                // No cached frame yet, return original
+                // NSLog(@"⏭️ Skipping frame - no cache yet, returning original");
+                return frame;
+            }
+        }
+        _isProcessing = YES;
+    }
     
-    @autoreleasepool {
-        // Get the pixel buffer from the frame
-        CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
-        if (!pixelBuffer) {
-            NSLog(@"❌ Could not get pixel buffer from frame");
-            return frame;
-        }
-        // NSLog(@"✅ Got pixel buffer from frame");
+    // Start async processing
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(_processingQueue, ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
         
-        // Process the frame
-        CVPixelBufferRef processedBuffer = [self processPixelBuffer:pixelBuffer];
-        if (!processedBuffer) {
-            NSLog(@"❌ Could not process pixel buffer");
+        @autoreleasepool {
+            // Get the pixel buffer from the frame
+            CVPixelBufferRef pixelBuffer = [strongSelf pixelBufferFromFrame:frame];
+            if (!pixelBuffer) {
+                NSLog(@"❌ Could not get pixel buffer from frame");
+                @synchronized(strongSelf->_processingLock) {
+                    strongSelf->_isProcessing = NO;
+                }
+                return;
+            }
+            
+            // Process the frame
+            CVPixelBufferRef processedBuffer = [strongSelf processPixelBuffer:pixelBuffer];
+            if (!processedBuffer) {
+                NSLog(@"❌ Could not process pixel buffer");
+                CVPixelBufferRelease(pixelBuffer);
+                @synchronized(strongSelf->_processingLock) {
+                    strongSelf->_isProcessing = NO;
+                }
+                return;
+            }
+            
+            // Create new RTCVideoFrame with processed buffer
+            RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
+            RTCVideoFrame *processedFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                                          rotation:frame.rotation
+                                                                       timeStampNs:frame.timeStampNs];
+            
             CVPixelBufferRelease(pixelBuffer);
-            return frame;
+            CVPixelBufferRelease(processedBuffer);
+            
+            // Update cached frame
+            @synchronized(strongSelf->_processingLock) {
+                strongSelf->_lastCompletedFrame = processedFrame;
+                strongSelf->_isProcessing = NO;
+                NSLog(@"✅ Processing complete - cached new frame");
+            }
         }
-        // NSLog(@"✅ Successfully processed frame with background effect");
-        
-        // Create new RTCVideoFrame with processed buffer
-        RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
-        RTCVideoFrame *processedFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+    });
+    
+    // Return last completed frame or original while processing
+    @synchronized(_processingLock) {
+        if (_lastCompletedFrame) {
+            // Return cached frame with current timestamp
+            RTCVideoFrame *cachedFrame = [[RTCVideoFrame alloc] initWithBuffer:_lastCompletedFrame.buffer
                                                                       rotation:frame.rotation
                                                                    timeStampNs:frame.timeStampNs];
-        
-        CVPixelBufferRelease(pixelBuffer);
-        CVPixelBufferRelease(processedBuffer);
-        
-        return processedFrame;
+            return cachedFrame;
+        } else {
+            // First frame - return original while processing
+            return frame;
+        }
     }
 }
 
@@ -173,7 +207,7 @@
         }
         
         // Convert I420 to BGRA
-        NSLog(@"⚠️ Converting to BGRA!");
+        NSLog(@"⚠️  Converting to BGRA!");
         [self convertI420Buffer:i420Buffer toPixelBuffer:pixelBuffer];
         
         return pixelBuffer;
