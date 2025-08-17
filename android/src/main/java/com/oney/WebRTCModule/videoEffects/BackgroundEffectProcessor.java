@@ -53,11 +53,9 @@ public class BackgroundEffectProcessor implements VideoFrameProcessor {
     private int[] textures = new int[2];
     private boolean glResourcesInitialized = false;
     
-    // Segmentation caching
-    private SegmentationMask cachedMask = null;
-    private final Object maskLock = new Object();
-    private long lastSegmentationTime = 0;
-    private static final long SEGMENTATION_INTERVAL_MS = 100; // Process segmentation every 100ms
+    // Frame caching - cache the last fully processed frame
+    private VideoFrame cachedProcessedFrame = null;
+    private final Object frameCacheLock = new Object();
     private boolean segmentationInProgress = false;
     
     public BackgroundEffectProcessor() {
@@ -102,19 +100,8 @@ public class BackgroundEffectProcessor implements VideoFrameProcessor {
                 return frame;
             }
             
-            // Get segmentation mask (async, use cached if available)
-            SegmentationMask mask = getCurrentMask(inputBitmap);
-            
-            // Apply background effect
-            Bitmap outputBitmap;
-            if (mask != null) {
-                outputBitmap = applyBackgroundWithMask(inputBitmap, mask);
-                Log.d(TAG, "Applied background with segmentation mask");
-            } else {
-                // Fallback: apply background without segmentation
-                outputBitmap = applySimpleBackground(inputBitmap);
-                Log.d(TAG, "Applied simple background (no mask available)");
-            }
+            // Apply background with ML Kit segmentation
+            Bitmap outputBitmap = processWithSegmentation(inputBitmap);
             
             // Convert back to VideoFrame
             VideoFrame result = bitmapToVideoFrame(outputBitmap, frame, textureHelper);
@@ -123,6 +110,7 @@ public class BackgroundEffectProcessor implements VideoFrameProcessor {
             inputBitmap.recycle();
             outputBitmap.recycle();
             
+            Log.d(TAG, "Frame processed successfully");
             return result != null ? result : frame;
             
         } catch (Exception e) {
@@ -131,51 +119,142 @@ public class BackgroundEffectProcessor implements VideoFrameProcessor {
         }
     }
     
-    private SegmentationMask getCurrentMask(Bitmap bitmap) {
-        long currentTime = System.currentTimeMillis();
-        
-        // Check if we should update segmentation
-        if (!segmentationInProgress && 
-            (cachedMask == null || currentTime - lastSegmentationTime > SEGMENTATION_INTERVAL_MS)) {
+    private Bitmap processWithSegmentation(Bitmap inputBitmap) {
+        try {
+            InputImage inputImage = InputImage.fromBitmap(inputBitmap, 0);
             
-            updateSegmentationAsync(bitmap);
-        }
-        
-        synchronized (maskLock) {
-            return cachedMask;
+            // Use Tasks.await to make ML Kit synchronous
+            SegmentationMask mask = Tasks.await(segmenter.process(inputImage), 1000, TimeUnit.MILLISECONDS);
+            
+            if (mask != null) {
+                Bitmap result = applyBackgroundWithMask(inputBitmap, mask);
+                Log.d(TAG, "Applied segmentation mask successfully");
+                return result;
+            } else {
+                Log.w(TAG, "No segmentation mask, using simple background");
+                return applySimpleBackground(inputBitmap);
+            }
+            
+        } catch (Exception e) {
+            Log.w(TAG, "Segmentation failed, using simple background", e);
+            return applySimpleBackground(inputBitmap);
         }
     }
-    
-    private void updateSegmentationAsync(Bitmap bitmap) {
-        segmentationInProgress = true;
-        lastSegmentationTime = System.currentTimeMillis();
-        
-        try {
-            InputImage inputImage = InputImage.fromBitmap(bitmap, 0);
-            
-            segmenter.process(inputImage)
-                .addOnSuccessListener(new OnSuccessListener<SegmentationMask>() {
-                    @Override
-                    public void onSuccess(SegmentationMask segmentationMask) {
-                        synchronized (maskLock) {
-                            cachedMask = segmentationMask;
-                        }
-                        segmentationInProgress = false;
-                        Log.d(TAG, "Segmentation completed successfully");
-                    }
-                })
-                .addOnFailureListener(new OnFailureListener() {
-                    @Override
-                    public void onFailure(Exception e) {
-                        Log.w(TAG, "Segmentation failed", e);
-                        segmentationInProgress = false;
-                    }
-                });
-                
-        } catch (Exception e) {
-            Log.e(TAG, "Error starting segmentation", e);
-            segmentationInProgress = false;
+
+    private void processFrameAsync(VideoFrame frame, SurfaceTextureHelper textureHelper) {
+        // Check if already processing - if so, skip this frame
+        synchronized (frameCacheLock) {
+            if (segmentationInProgress) {
+                Log.d(TAG, "Already processing, skipping frame");
+                return;
+            }
+            segmentationInProgress = true;
         }
+        
+        // Retain the frame for async processing
+        frame.retain();
+        
+        // Process on background thread to avoid blocking the video pipeline
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // Convert frame to Bitmap for ML Kit processing
+                    Bitmap inputBitmap = frameToBitmap(frame, textureHelper);
+                    if (inputBitmap == null) {
+                        Log.w(TAG, "Failed to convert frame to bitmap");
+                        frame.release();
+                        segmentationInProgress = false;
+                        return;
+                    }
+                    
+                    // Process with ML Kit segmentation
+                    InputImage inputImage = InputImage.fromBitmap(inputBitmap, 0);
+                    
+                    segmenter.process(inputImage)
+                        .addOnSuccessListener(new OnSuccessListener<SegmentationMask>() {
+                            @Override
+                            public void onSuccess(SegmentationMask segmentationMask) {
+                                try {
+                                    // Apply background effect with segmentation
+                                    Bitmap outputBitmap = applyBackgroundWithMask(inputBitmap, segmentationMask);
+                                    
+                                    // Convert back to VideoFrame
+                                    VideoFrame processedFrame = bitmapToVideoFrame(outputBitmap, frame, textureHelper);
+                                    
+                                    // Cache the completed processed frame
+                                    if (processedFrame != null) {
+                                        synchronized (frameCacheLock) {
+                                            if (cachedProcessedFrame != null) {
+                                                cachedProcessedFrame.release();
+                                            }
+                                            cachedProcessedFrame = processedFrame;
+                                            cachedProcessedFrame.retain();
+                                            segmentationInProgress = false;
+                                        }
+                                        processedFrame.release();
+                                    }
+                                    
+                                    // Clean up
+                                    inputBitmap.recycle();
+                                    outputBitmap.recycle();
+                                    frame.release();
+                                    
+                                    Log.d(TAG, "Frame processed and cached successfully");
+                                    
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Error in segmentation success handler", e);
+                                    frame.release();
+                                    synchronized (frameCacheLock) {
+                                        segmentationInProgress = false;
+                                    }
+                                }
+                            }
+                        })
+                        .addOnFailureListener(new OnFailureListener() {
+                            @Override
+                            public void onFailure(Exception e) {
+                                Log.w(TAG, "Segmentation failed, using fallback", e);
+                                
+                                try {
+                                    // Fallback: apply simple background
+                                    Bitmap outputBitmap = applySimpleBackground(inputBitmap);
+                                    VideoFrame processedFrame = bitmapToVideoFrame(outputBitmap, frame, textureHelper);
+                                    
+                                    if (processedFrame != null) {
+                                        synchronized (frameCacheLock) {
+                                            if (cachedProcessedFrame != null) {
+                                                cachedProcessedFrame.release();
+                                            }
+                                            cachedProcessedFrame = processedFrame;
+                                            cachedProcessedFrame.retain();
+                                            segmentationInProgress = false;
+                                        }
+                                        processedFrame.release();
+                                    }
+                                    
+                                    inputBitmap.recycle();
+                                    outputBitmap.recycle();
+                                } catch (Exception fallbackError) {
+                                    Log.e(TAG, "Error in fallback processing", fallbackError);
+                                }
+                                
+                                frame.release();
+                                synchronized (frameCacheLock) {
+                                    segmentationInProgress = false;
+                                }
+                            }
+                        });
+                        
+                } catch (Exception e) {
+                    Log.e(TAG, "Error starting async frame processing", e);
+                    frame.release();
+                    synchronized (frameCacheLock) {
+                        segmentationInProgress = false;
+                    }
+                }
+            }
+        }).start();
     }
     
     private Bitmap applyBackgroundWithMask(Bitmap input, SegmentationMask mask) {
@@ -474,9 +553,10 @@ public class BackgroundEffectProcessor implements VideoFrameProcessor {
                 segmenter = null;
             }
             
-            synchronized (maskLock) {
-                if (cachedMask != null) {
-                    cachedMask = null;
+            synchronized (frameCacheLock) {
+                if (cachedProcessedFrame != null) {
+                    cachedProcessedFrame.release();
+                    cachedProcessedFrame = null;
                 }
             }
             
