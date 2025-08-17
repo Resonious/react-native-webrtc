@@ -454,8 +454,13 @@ class GetUserMediaImpl {
                                 .filter(Objects::nonNull)
                                 .collect(Collectors.toList());
 
-                VideoEffectProcessor videoEffectProcessor = new VideoEffectProcessor(processors, surfaceTextureHelper);
-                videoSource.setVideoProcessor(videoEffectProcessor);
+                if (!processors.isEmpty()) {
+                    VideoEffectProcessor videoEffectProcessor = new VideoEffectProcessor(processors, surfaceTextureHelper);
+                    videoSource.setVideoProcessor(videoEffectProcessor);
+                } else {
+                    Log.w(TAG, "No valid video processors found, removing video effects");
+                    videoSource.setVideoProcessor(null);
+                }
 
             } else {
                 videoSource.setVideoProcessor(null);

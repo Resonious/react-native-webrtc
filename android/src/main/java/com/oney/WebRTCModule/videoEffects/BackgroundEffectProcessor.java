@@ -9,10 +9,18 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
+import android.util.Log;
 
-import com.google.mediapipe.solutions.selfiesegmentation.SelfieSegmentation;
-import com.google.mediapipe.solutions.selfiesegmentation.SelfieSegmentationOptions;
-import com.google.mediapipe.solutions.selfiesegmentation.SelfieSegmentationResult;
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.google.android.gms.tasks.Tasks;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.segmentation.Segmentation;
+import com.google.mlkit.vision.segmentation.SegmentationMask;
+import com.google.mlkit.vision.segmentation.Segmenter;
+import com.google.mlkit.vision.segmentation.selfie.SelfieSegmenterOptions;
 
 import org.webrtc.GlUtil;
 import org.webrtc.SurfaceTextureHelper;
@@ -24,239 +32,466 @@ import org.webrtc.VideoFrame.TextureBuffer;
 import org.webrtc.YuvConverter;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
+
+import javax.microedition.khronos.egl.EGLContext;
 
 /**
- * Video frame processor that replaces the background with a solid color using MediaPipe.
- * This implementation uses MediaPipe's selfie segmentation model to detect the person
+ * Video frame processor that replaces the background with a solid color using ML Kit.
+ * This implementation uses ML Kit's selfie segmentation model to detect the person
  * and replace the background with white or any specified color.
  */
 public class BackgroundEffectProcessor implements VideoFrameProcessor {
     private static final String TAG = "BackgroundEffectProcessor";
     
-    private SelfieSegmentation selfieSegmentation;
+    private Segmenter segmenter;
     private final int backgroundColor;
     private YuvConverter yuvConverter;
-    private TextureBufferImpl outputTextureBuffer;
     private final Matrix transformMatrix = new Matrix();
     
     // OpenGL resources
     private int[] textures = new int[2];
     private boolean glResourcesInitialized = false;
     
+    // Segmentation caching
+    private SegmentationMask cachedMask = null;
+    private final Object maskLock = new Object();
+    private long lastSegmentationTime = 0;
+    private static final long SEGMENTATION_INTERVAL_MS = 100; // Process segmentation every 100ms
+    private boolean segmentationInProgress = false;
+    
     public BackgroundEffectProcessor() {
         this(Color.WHITE); // Default to white background
+        Log.e(TAG, "***IMPORTANT*** BackgroundEffectProcessor constructor called - UPDATED VERSION");
     }
     
     public BackgroundEffectProcessor(int backgroundColor) {
         this.backgroundColor = backgroundColor;
-        initializeMediaPipe();
+        Log.e(TAG, "***IMPORTANT*** BackgroundEffectProcessor constructor called with color - UPDATED VERSION");
+        initializeSegmenter();
     }
     
-    private void initializeMediaPipe() {
-        SelfieSegmentationOptions options = SelfieSegmentationOptions.builder()
-            .setStaticImageMode(false) // Process video stream
-            .setModelSelection(1) // 0: general model, 1: landscape model (better quality)
-            .build();
-            
-        selfieSegmentation = new SelfieSegmentation(options);
-        selfieSegmentation.setResultListener(this::onSegmentationResult);
-        selfieSegmentation.setErrorListener((message, e) -> {
-            android.util.Log.e(TAG, "MediaPipe error: " + message, e);
-        });
-    }
-    
-    private SelfieSegmentationResult currentSegmentationResult;
-    
-    private void onSegmentationResult(SelfieSegmentationResult result) {
-        currentSegmentationResult = result;
+    private void initializeSegmenter() {
+        try {
+            SelfieSegmenterOptions options = new SelfieSegmenterOptions.Builder()
+                .setDetectorMode(SelfieSegmenterOptions.STREAM_MODE)
+                .enableRawSizeMask()
+                .build();
+                
+            segmenter = Segmentation.getClient(options);
+            Log.d(TAG, "ML Kit segmenter initialized successfully");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to initialize ML Kit segmenter", e);
+        }
     }
     
     @Override
     public VideoFrame process(VideoFrame frame, SurfaceTextureHelper textureHelper) {
-        if (frame == null || textureHelper == null) {
+        if (segmenter == null) {
+            Log.w(TAG, "Segmenter not initialized, returning original frame");
             return frame;
         }
         
+        Log.d(TAG, "Processing frame for background effect");
+        
         try {
-            // Convert frame to Bitmap for MediaPipe processing
+            // Convert frame to Bitmap for ML Kit processing
             Bitmap inputBitmap = frameToBitmap(frame, textureHelper);
             if (inputBitmap == null) {
+                Log.w(TAG, "Failed to convert frame to bitmap, returning original");
                 return frame;
             }
             
-            // Send frame to MediaPipe for segmentation
-            long timestamp = frame.getTimestampNs() / 1000; // Convert to microseconds
-            selfieSegmentation.send(inputBitmap, timestamp);
+            // Get segmentation mask (async, use cached if available)
+            SegmentationMask mask = getCurrentMask(inputBitmap);
             
-            // Wait for segmentation result (in production, consider async processing)
-            if (currentSegmentationResult == null) {
-                return frame; // Return original if no segmentation available yet
+            // Apply background effect
+            Bitmap outputBitmap;
+            if (mask != null) {
+                outputBitmap = applyBackgroundWithMask(inputBitmap, mask);
+                Log.d(TAG, "Applied background with segmentation mask");
+            } else {
+                // Fallback: apply background without segmentation
+                outputBitmap = applySimpleBackground(inputBitmap);
+                Log.d(TAG, "Applied simple background (no mask available)");
             }
             
-            // Create output bitmap with background replacement
-            Bitmap outputBitmap = applyBackgroundEffect(inputBitmap, currentSegmentationResult);
+            // Convert back to VideoFrame
+            VideoFrame result = bitmapToVideoFrame(outputBitmap, frame, textureHelper);
             
-            // Convert bitmap back to VideoFrame
-            VideoFrame outputFrame = bitmapToVideoFrame(outputBitmap, frame, textureHelper);
-            
-            // Clean up
+            // Clean up bitmaps immediately to prevent memory issues
             inputBitmap.recycle();
             outputBitmap.recycle();
             
-            return outputFrame;
+            return result != null ? result : frame;
             
         } catch (Exception e) {
-            android.util.Log.e(TAG, "Error processing frame", e);
+            Log.e(TAG, "Error processing frame", e);
             return frame;
         }
     }
     
-    private Bitmap frameToBitmap(VideoFrame frame, SurfaceTextureHelper textureHelper) {
-        Buffer buffer = frame.getBuffer();
-        int width = buffer.getWidth();
-        int height = buffer.getHeight();
+    private SegmentationMask getCurrentMask(Bitmap bitmap) {
+        long currentTime = System.currentTimeMillis();
         
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        
-        if (buffer instanceof TextureBuffer) {
-            // Handle texture buffer
-            TextureBuffer textureBuffer = (TextureBuffer) buffer;
+        // Check if we should update segmentation
+        if (!segmentationInProgress && 
+            (cachedMask == null || currentTime - lastSegmentationTime > SEGMENTATION_INTERVAL_MS)) {
             
-            // Initialize OpenGL resources if needed
-            if (!glResourcesInitialized) {
-                initializeGlResources();
-            }
-            
-            // Render texture to bitmap using OpenGL
-            textureHelper.getHandler().post(() -> {
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureBuffer.getTextureId());
-                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
-            });
-            
-        } else if (buffer instanceof I420Buffer) {
-            // Handle I420 buffer
-            I420Buffer i420Buffer = (I420Buffer) buffer;
-            
-            // Convert YUV to RGB
-            if (yuvConverter == null) {
-                yuvConverter = new YuvConverter();
-            }
-            
-            // This is a simplified conversion - in production, use proper YUV to RGB conversion
-            // You might need to implement a custom converter or use existing WebRTC utilities
-            android.util.Log.w(TAG, "I420 to Bitmap conversion not fully implemented");
-            return null;
+            updateSegmentationAsync(bitmap);
         }
         
-        return bitmap;
+        synchronized (maskLock) {
+            return cachedMask;
+        }
     }
     
-    private Bitmap applyBackgroundEffect(Bitmap input, SelfieSegmentationResult segmentationResult) {
-        Bitmap mask = segmentationResult.getSegmentationMask();
-        if (mask == null) {
-            return input;
-        }
+    private void updateSegmentationAsync(Bitmap bitmap) {
+        segmentationInProgress = true;
+        lastSegmentationTime = System.currentTimeMillis();
         
+        try {
+            InputImage inputImage = InputImage.fromBitmap(bitmap, 0);
+            
+            segmenter.process(inputImage)
+                .addOnSuccessListener(new OnSuccessListener<SegmentationMask>() {
+                    @Override
+                    public void onSuccess(SegmentationMask segmentationMask) {
+                        synchronized (maskLock) {
+                            cachedMask = segmentationMask;
+                        }
+                        segmentationInProgress = false;
+                        Log.d(TAG, "Segmentation completed successfully");
+                    }
+                })
+                .addOnFailureListener(new OnFailureListener() {
+                    @Override
+                    public void onFailure(Exception e) {
+                        Log.w(TAG, "Segmentation failed", e);
+                        segmentationInProgress = false;
+                    }
+                });
+                
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting segmentation", e);
+            segmentationInProgress = false;
+        }
+    }
+    
+    private Bitmap applyBackgroundWithMask(Bitmap input, SegmentationMask mask) {
         int width = input.getWidth();
         int height = input.getHeight();
         
-        // Create output bitmap
         Bitmap output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(output);
-        Paint paint = new Paint();
-        paint.setAntiAlias(true);
         
-        // Draw white background
+        // Draw background color
         canvas.drawColor(backgroundColor);
         
-        // Scale mask to match input size if needed
-        Bitmap scaledMask = mask;
-        if (mask.getWidth() != width || mask.getHeight() != height) {
-            scaledMask = Bitmap.createScaledBitmap(mask, width, height, true);
-        }
-        
-        // Apply person on top using mask
-        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_OVER));
-        
-        // Create a paint with the mask as alpha
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int maskPixel = scaledMask.getPixel(x, y);
-                float confidence = Color.red(maskPixel) / 255.0f; // Mask is grayscale
-                
-                if (confidence > 0.5f) { // Threshold for person detection
-                    int inputPixel = input.getPixel(x, y);
-                    paint.setAlpha((int)(confidence * 255));
-                    canvas.drawPoint(x, y, paint);
-                    output.setPixel(x, y, inputPixel);
+        try {
+            // Get mask data
+            ByteBuffer maskBuffer = mask.getBuffer();
+            int maskWidth = mask.getWidth();
+            int maskHeight = mask.getHeight();
+            
+            // Calculate scaling factors
+            float scaleX = (float) maskWidth / width;
+            float scaleY = (float) maskHeight / height;
+            
+            // Create a bitmap for the person (foreground)
+            Bitmap personBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            
+            // Process each pixel
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    // Map to mask coordinates
+                    int maskX = Math.min((int)(x * scaleX), maskWidth - 1);
+                    int maskY = Math.min((int)(y * scaleY), maskHeight - 1);
+                    
+                    // Get confidence from mask
+                    int maskIndex = maskY * maskWidth + maskX;
+                    if (maskIndex * 4 < maskBuffer.capacity()) {
+                        maskBuffer.position(maskIndex * 4);
+                        float confidence = maskBuffer.getFloat();
+                        
+                        if (confidence > 0.5f) { // Person detected
+                            int inputPixel = input.getPixel(x, y);
+                            personBitmap.setPixel(x, y, inputPixel);
+                        } else {
+                            personBitmap.setPixel(x, y, Color.TRANSPARENT);
+                        }
+                    }
                 }
             }
-        }
-        
-        if (scaledMask != mask) {
-            scaledMask.recycle();
+            
+            // Draw person on top of background
+            canvas.drawBitmap(personBitmap, 0, 0, null);
+            personBitmap.recycle();
+            
+        } catch (Exception e) {
+            Log.w(TAG, "Error applying mask, falling back to simple background", e);
+            // If mask processing fails, draw input with some transparency
+            Paint paint = new Paint();
+            paint.setAlpha(180);
+            canvas.drawBitmap(input, 0, 0, paint);
         }
         
         return output;
     }
     
-    private VideoFrame bitmapToVideoFrame(Bitmap bitmap, VideoFrame originalFrame, SurfaceTextureHelper textureHelper) {
-        // Create texture from bitmap
-        if (!glResourcesInitialized) {
-            initializeGlResources();
-        }
+    private Bitmap applySimpleBackground(Bitmap input) {
+        int width = input.getWidth();
+        int height = input.getHeight();
         
-        final int[] textureId = new int[1];
+        Bitmap output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(output);
         
-        textureHelper.getHandler().post(() -> {
-            GLES20.glGenTextures(1, textureId, 0);
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId[0]);
-            
-            // Set texture parameters
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-            
-            // Upload bitmap to texture
-            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
-        });
+        // Draw background
+        canvas.drawColor(backgroundColor);
         
-        // Create TextureBuffer
-        TextureBuffer textureBuffer = new TextureBufferImpl(
-            bitmap.getWidth(),
-            bitmap.getHeight(),
-            TextureBuffer.Type.RGB,
-            textureId[0],
-            transformMatrix,
-            textureHelper.getHandler(),
-            yuvConverter,
-            null
-        );
+        // Draw input with some transparency to see the effect
+        Paint paint = new Paint();
+        paint.setAlpha(128); // 50% opacity
+        canvas.drawBitmap(input, 0, 0, paint);
         
-        // Create new VideoFrame with the processed texture
-        return new VideoFrame(textureBuffer, originalFrame.getRotation(), originalFrame.getTimestampNs());
+        return output;
     }
     
-    private void initializeGlResources() {
-        GLES20.glGenTextures(2, textures, 0);
-        glResourcesInitialized = true;
+    private Bitmap frameToBitmap(VideoFrame frame, SurfaceTextureHelper textureHelper) {
+        try {
+            Buffer buffer = frame.getBuffer();
+            
+            if (buffer instanceof TextureBuffer) {
+                return textureBufferToBitmap((TextureBuffer) buffer, textureHelper);
+            } else if (buffer instanceof I420Buffer) {
+                return i420BufferToBitmap((I420Buffer) buffer);
+            }
+            
+            Log.w(TAG, "Unsupported buffer type: " + buffer.getClass().getSimpleName());
+            return null;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error converting frame to bitmap", e);
+            return null;
+        }
+    }
+    
+    private Bitmap textureBufferToBitmap(TextureBuffer textureBuffer, SurfaceTextureHelper textureHelper) {
+        try {
+            int width = textureBuffer.getWidth();
+            int height = textureBuffer.getHeight();
+            
+            // Use YuvConverter to convert texture to bitmap
+            if (yuvConverter == null) {
+                yuvConverter = new YuvConverter();
+            }
+            
+            // Create I420 buffer from texture
+            I420Buffer i420Buffer = yuvConverter.convert(textureBuffer);
+            
+            // Convert I420 to bitmap
+            Bitmap bitmap = i420BufferToBitmap(i420Buffer);
+            
+            // Release the I420 buffer
+            i420Buffer.release();
+            
+            return bitmap;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error converting texture buffer to bitmap", e);
+            
+            // Fallback: create a simple bitmap
+            int width = textureBuffer.getWidth();
+            int height = textureBuffer.getHeight();
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            bitmap.eraseColor(Color.GRAY);
+            return bitmap;
+        }
+    }
+    
+    private Bitmap i420BufferToBitmap(I420Buffer i420Buffer) {
+        try {
+            int width = i420Buffer.getWidth();
+            int height = i420Buffer.getHeight();
+            
+            // Create bitmap
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            
+            // Convert YUV to RGB
+            ByteBuffer yBuffer = i420Buffer.getDataY();
+            ByteBuffer uBuffer = i420Buffer.getDataU();
+            ByteBuffer vBuffer = i420Buffer.getDataV();
+            
+            int yStride = i420Buffer.getStrideY();
+            int uStride = i420Buffer.getStrideU();
+            int vStride = i420Buffer.getStrideV();
+            
+            int[] pixels = new int[width * height];
+            
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int yIndex = y * yStride + x;
+                    int uvIndex = (y / 2) * uStride + (x / 2);
+                    
+                    if (yIndex < yBuffer.capacity() && uvIndex < uBuffer.capacity() && uvIndex < vBuffer.capacity()) {
+                        int yValue = yBuffer.get(yIndex) & 0xFF;
+                        int uValue = uBuffer.get(uvIndex) & 0xFF;
+                        int vValue = vBuffer.get(uvIndex) & 0xFF;
+                        
+                        // YUV to RGB conversion
+                        int r = (int) (yValue + 1.402 * (vValue - 128));
+                        int g = (int) (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128));
+                        int b = (int) (yValue + 1.772 * (uValue - 128));
+                        
+                        // Clamp values
+                        r = Math.max(0, Math.min(255, r));
+                        g = Math.max(0, Math.min(255, g));
+                        b = Math.max(0, Math.min(255, b));
+                        
+                        pixels[y * width + x] = Color.rgb(r, g, b);
+                    }
+                }
+            }
+            
+            bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+            return bitmap;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error converting I420 to bitmap", e);
+            
+            // Fallback
+            int width = i420Buffer.getWidth();
+            int height = i420Buffer.getHeight();
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            bitmap.eraseColor(Color.LTGRAY);
+            return bitmap;
+        }
+    }
+    
+    private VideoFrame bitmapToVideoFrame(Bitmap bitmap, VideoFrame originalFrame, SurfaceTextureHelper textureHelper) {
+        try {
+            int width = bitmap.getWidth();
+            int height = bitmap.getHeight();
+            
+            // Create I420 buffer from bitmap
+            int[] pixels = new int[width * height];
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+            
+            // Convert RGB to YUV
+            byte[] yData = new byte[width * height];
+            byte[] uData = new byte[width * height / 4];
+            byte[] vData = new byte[width * height / 4];
+            
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int pixel = pixels[y * width + x];
+                    int r = Color.red(pixel);
+                    int g = Color.green(pixel);
+                    int b = Color.blue(pixel);
+                    
+                    // RGB to YUV conversion
+                    int yValue = (int) (0.299 * r + 0.587 * g + 0.114 * b);
+                    int uValue = (int) (-0.147 * r - 0.289 * g + 0.436 * b + 128);
+                    int vValue = (int) (0.615 * r - 0.515 * g - 0.100 * b + 128);
+                    
+                    yData[y * width + x] = (byte) Math.max(0, Math.min(255, yValue));
+                    
+                    if (y % 2 == 0 && x % 2 == 0) {
+                        int uvIndex = (y / 2) * (width / 2) + (x / 2);
+                        uData[uvIndex] = (byte) Math.max(0, Math.min(255, uValue));
+                        vData[uvIndex] = (byte) Math.max(0, Math.min(255, vValue));
+                    }
+                }
+            }
+            
+            // Create I420 buffer
+            ByteBuffer yBuffer = ByteBuffer.allocateDirect(yData.length);
+            ByteBuffer uBuffer = ByteBuffer.allocateDirect(uData.length);
+            ByteBuffer vBuffer = ByteBuffer.allocateDirect(vData.length);
+            
+            yBuffer.put(yData);
+            uBuffer.put(uData);
+            vBuffer.put(vData);
+            
+            yBuffer.rewind();
+            uBuffer.rewind();
+            vBuffer.rewind();
+            
+            I420Buffer i420Buffer = new I420Buffer() {
+                @Override
+                public int getWidth() { return width; }
+                
+                @Override
+                public int getHeight() { return height; }
+                
+                @Override
+                public ByteBuffer getDataY() { return yBuffer; }
+                
+                @Override
+                public ByteBuffer getDataU() { return uBuffer; }
+                
+                @Override
+                public ByteBuffer getDataV() { return vBuffer; }
+                
+                @Override
+                public int getStrideY() { return width; }
+                
+                @Override
+                public int getStrideU() { return width / 2; }
+                
+                @Override
+                public int getStrideV() { return width / 2; }
+                
+                @Override
+                public void retain() {}
+                
+                @Override
+                public void release() {}
+                
+                @Override
+                public I420Buffer toI420() { return this; }
+                
+                @Override
+                public Buffer cropAndScale(int cropX, int cropY, int cropWidth, int cropHeight, int scaleWidth, int scaleHeight) {
+                    return null;
+                }
+            };
+            
+            return new VideoFrame(i420Buffer, originalFrame.getRotation(), originalFrame.getTimestampNs());
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error converting bitmap to VideoFrame", e);
+            return null;
+        }
     }
     
     public void release() {
-        if (selfieSegmentation != null) {
-            selfieSegmentation.close();
-            selfieSegmentation = null;
-        }
+        Log.d(TAG, "Releasing BackgroundEffectProcessor resources");
         
-        if (glResourcesInitialized) {
-            GLES20.glDeleteTextures(2, textures, 0);
-            glResourcesInitialized = false;
-        }
-        
-        if (yuvConverter != null) {
-            yuvConverter.release();
-            yuvConverter = null;
+        try {
+            if (segmenter != null) {
+                segmenter.close();
+                segmenter = null;
+            }
+            
+            synchronized (maskLock) {
+                if (cachedMask != null) {
+                    cachedMask = null;
+                }
+            }
+            
+            if (glResourcesInitialized && textures != null) {
+                GLES20.glDeleteTextures(2, textures, 0);
+                glResourcesInitialized = false;
+            }
+            
+            if (yuvConverter != null) {
+                yuvConverter.release();
+                yuvConverter = null;
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error during release", e);
         }
     }
 }

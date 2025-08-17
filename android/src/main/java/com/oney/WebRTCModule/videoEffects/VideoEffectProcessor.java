@@ -40,20 +40,48 @@ public class VideoEffectProcessor implements VideoProcessor {
      */
     @Override
     public void onFrameCaptured(VideoFrame frame) {
+        if (frame == null || mSink == null) {
+            return;
+        }
+        
         frame.retain();
         VideoFrame outputFrame = frame;
-        for (VideoFrameProcessor processor : this.videoFrameProcessors) {
-            outputFrame = processor.process(outputFrame, textureHelper);
-
-            if (outputFrame == null) {
-                mSink.onFrame(frame);
-                frame.release();
-                return;
+        
+        try {
+            for (VideoFrameProcessor processor : this.videoFrameProcessors) {
+                if (processor == null) {
+                    continue;
+                }
+                
+                VideoFrame processedFrame = processor.process(outputFrame, textureHelper);
+                
+                if (processedFrame == null) {
+                    // If processing failed, send original frame
+                    mSink.onFrame(frame);
+                    frame.release();
+                    return;
+                }
+                
+                // Release the previous frame if it's not the original
+                if (outputFrame != frame) {
+                    outputFrame.release();
+                }
+                
+                outputFrame = processedFrame;
             }
-        }
 
-        mSink.onFrame(outputFrame);
-        outputFrame.release();
-        frame.release();
+            mSink.onFrame(outputFrame);
+            
+        } catch (Exception e) {
+            android.util.Log.e("VideoEffectProcessor", "Error processing frame", e);
+            // Send original frame if processing fails
+            mSink.onFrame(frame);
+        } finally {
+            // Clean up
+            if (outputFrame != frame) {
+                outputFrame.release();
+            }
+            frame.release();
+        }
     }
 }
