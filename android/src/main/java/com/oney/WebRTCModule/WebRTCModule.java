@@ -83,6 +83,9 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
         mPeerConnectionObservers = new SparseArray<>();
         localStreams = new HashMap<>();
         
+        // Set application context for MediaPipe processors
+        BackgroundEffectProcessorFactory.setApplicationContext(reactContext);
+        
         // Register video effect processors
         BackgroundEffectProcessorFactory.register();
 
