@@ -8,6 +8,7 @@ import android.graphics.Paint;
 import android.util.Log;
 
 import com.google.mediapipe.framework.image.BitmapImageBuilder;
+import com.google.mediapipe.framework.image.ByteBufferExtractor;
 import com.google.mediapipe.framework.image.MPImage;
 import com.google.mediapipe.tasks.core.BaseOptions;
 import com.google.mediapipe.tasks.core.Delegate;
@@ -16,7 +17,7 @@ import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenter;
 import com.google.mediapipe.tasks.vision.imagesegmenter.ImageSegmenterResult;
 
 import org.webrtc.SurfaceTextureHelper;
-import org.webrtc.TextureBuffer;
+import org.webrtc.VideoFrame.TextureBuffer;
 import org.webrtc.VideoFrame;
 import org.webrtc.VideoFrame.Buffer;
 import org.webrtc.VideoFrame.I420Buffer;
@@ -164,7 +165,15 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             return input;
         }
         
-        ByteBuffer maskBuffer = segmentationResult.categoryMask().get().getBuffer();
+        // Extract mask buffer using ByteBufferExtractor
+        ByteBuffer maskBuffer;
+        try {
+            maskBuffer = ByteBufferExtractor.extract(segmentationResult.categoryMask().get());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to extract mask buffer", e);
+            return input;
+        }
+        
         int maskWidth = segmentationResult.categoryMask().get().getWidth();
         int maskHeight = segmentationResult.categoryMask().get().getHeight();
         
