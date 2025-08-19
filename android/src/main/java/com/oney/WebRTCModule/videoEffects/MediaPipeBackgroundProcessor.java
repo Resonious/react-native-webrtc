@@ -9,6 +9,7 @@ import android.util.Log;
 
 import com.google.mediapipe.framework.image.BitmapImageBuilder;
 import com.google.mediapipe.framework.image.ByteBufferExtractor;
+import com.google.mediapipe.framework.image.ByteBufferImageBuilder;
 import com.google.mediapipe.framework.image.MPImage;
 import com.google.mediapipe.tasks.core.BaseOptions;
 import com.google.mediapipe.tasks.core.Delegate;
@@ -63,14 +64,15 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
     
     private void initializeSegmenter() {
         try {
+            // Try CPU delegate with VIDEO mode for better performance than IMAGE mode
             BaseOptions baseOptions = BaseOptions.builder()
                 .setModelAssetPath(MODEL_NAME)
-                .setDelegate(Delegate.GPU) // Use GPU for better performance
+                .setDelegate(Delegate.CPU) // CPU to avoid GPU timestamp issues
                 .build();
             
             ImageSegmenter.ImageSegmenterOptions options = ImageSegmenter.ImageSegmenterOptions.builder()
                 .setBaseOptions(baseOptions)
-                .setRunningMode(RunningMode.VIDEO)
+                .setRunningMode(RunningMode.VIDEO) // VIDEO mode optimized for streaming
                 .setOutputCategoryMask(true)
                 .setOutputConfidenceMasks(false)
                 .build();
@@ -101,26 +103,55 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         }
         
         try {
-            long startTime = System.currentTimeMillis();
+            long totalStartTime = System.currentTimeMillis();
             
             // Convert frame to Bitmap
+            long bitmapStart = System.currentTimeMillis();
             Bitmap inputBitmap = frameToBitmap(frame, textureHelper);
             if (inputBitmap == null) {
                 return frame;
             }
             
-            // Create MediaPipe image
-            MPImage mpImage = new BitmapImageBuilder(inputBitmap).build();
+            // Scale down for processing to improve performance
+            int originalWidth = inputBitmap.getWidth();
+            int originalHeight = inputBitmap.getHeight();
+            int processingWidth = originalWidth / 2;  // Half resolution for processing
+            int processingHeight = originalHeight / 2;
             
-            // Perform segmentation
+            Bitmap scaledBitmap = Bitmap.createScaledBitmap(inputBitmap, processingWidth, processingHeight, false);
+            long bitmapTime = System.currentTimeMillis() - bitmapStart;
+            
+            // Ensure scaled bitmap is in ARGB_8888 format like Google's example
+            long formatStart = System.currentTimeMillis();
+            Bitmap processedBitmap;
+            if (scaledBitmap.getConfig() != Bitmap.Config.ARGB_8888) {
+                processedBitmap = scaledBitmap.copy(Bitmap.Config.ARGB_8888, false);
+                Log.d(TAG, "Converted bitmap to ARGB_8888");
+            } else {
+                processedBitmap = scaledBitmap;
+            }
+            long formatTime = System.currentTimeMillis() - formatStart;
+            
+            // Use simple BitmapImageBuilder approach
+            long mpImageStart = System.currentTimeMillis();
+            MPImage mpImage = new BitmapImageBuilder(processedBitmap).build();
+            long mpImageTime = System.currentTimeMillis() - mpImageStart;
+            
+            // Perform segmentation using VIDEO mode with proper timestamps
+            long segmentationStart = System.currentTimeMillis();
             long timestampMs = frame.getTimestampNs() / 1_000_000L;
             ImageSegmenterResult result = imageSegmenter.segmentForVideo(mpImage, timestampMs);
+            long segmentationTime = System.currentTimeMillis() - segmentationStart;
             
-            // Apply background replacement
+            // Apply background replacement on original size bitmap
+            long applyStart = System.currentTimeMillis();
             Bitmap outputBitmap = applyBackground(inputBitmap, result);
+            long applyTime = System.currentTimeMillis() - applyStart;
             
             // Convert back to VideoFrame
+            long videoFrameStart = System.currentTimeMillis();
             VideoFrame processedFrame = bitmapToVideoFrame(outputBitmap, frame, textureHelper);
+            long videoFrameTime = System.currentTimeMillis() - videoFrameStart;
             
             // Cache the processed frame
             synchronized (frameLock) {
@@ -135,14 +166,34 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             }
             
             // Clean up
+            if (processedBitmap != scaledBitmap) {
+                processedBitmap.recycle();
+            }
+            if (scaledBitmap != inputBitmap) {
+                scaledBitmap.recycle();
+            }
             inputBitmap.recycle();
             outputBitmap.recycle();
             mpImage.close();
             
-            // Performance tracking
-            long processingTime = System.currentTimeMillis() - startTime;
+            // Performance tracking with detailed breakdown
+            long totalTime = System.currentTimeMillis() - totalStartTime;
             frameCount++;
-            totalProcessingTime += processingTime;
+            totalProcessingTime += totalTime;
+            
+            // Log detailed timing breakdown every few frames
+            if (frameCount % 10 == 0) {
+                Log.d(TAG, String.format("Frame %d timing breakdown:", frameCount));
+                Log.d(TAG, String.format("  Bitmap conversion: %dms", bitmapTime));
+                Log.d(TAG, String.format("  Format check: %dms", formatTime));
+                Log.d(TAG, String.format("  MPImage creation: %dms", mpImageTime));
+                Log.d(TAG, String.format("  Segmentation: %dms", segmentationTime));
+                Log.d(TAG, String.format("  Apply background: %dms", applyTime));
+                Log.d(TAG, String.format("  VideoFrame conversion: %dms", videoFrameTime));
+                Log.d(TAG, String.format("  TOTAL: %dms", totalTime));
+                Log.d(TAG, String.format("  Average: %.1fms over %d frames", 
+                    (float)totalProcessingTime / frameCount, frameCount));
+            }
             
             if (frameCount % 30 == 0) {
                 Log.d(TAG, String.format("Avg processing time: %.2fms", 
@@ -169,10 +220,25 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         ByteBuffer maskBuffer;
         try {
             maskBuffer = ByteBufferExtractor.extract(segmentationResult.categoryMask().get());
+            Log.d(TAG, "Mask buffer extracted successfully, capacity: " + maskBuffer.capacity());
         } catch (Exception e) {
             Log.e(TAG, "Failed to extract mask buffer", e);
             return input;
         }
+        
+        // Sample some mask values to understand what we're getting
+        int sampleCount = Math.min(100, maskBuffer.capacity());
+        int personPixels = 0;
+        int backgroundPixels = 0;
+        for (int i = 0; i < sampleCount; i++) {
+            byte category = maskBuffer.get(i);
+            if (category == 0) personPixels++;
+            else if ((category & 0xFF) == 255) backgroundPixels++; // 255 unsigned = -1 signed
+        }
+        maskBuffer.rewind(); // Reset position after sampling
+        
+        Log.d(TAG, String.format("Mask sample (%d pixels): person (0)=%d, background (255)=%d", 
+            sampleCount, personPixels, backgroundPixels));
         
         int maskWidth = segmentationResult.categoryMask().get().getWidth();
         int maskHeight = segmentationResult.categoryMask().get().getHeight();
@@ -180,44 +246,72 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         int inputWidth = input.getWidth();
         int inputHeight = input.getHeight();
         
-        Bitmap output = Bitmap.createBitmap(inputWidth, inputHeight, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(output);
-        Paint paint = new Paint();
-        paint.setAntiAlias(true);
-        
-        // Draw background color
-        canvas.drawColor(backgroundColor);
-        
-        // Create person mask bitmap
-        Bitmap personMask = Bitmap.createBitmap(inputWidth, inputHeight, Bitmap.Config.ARGB_8888);
-        
         float scaleX = (float)maskWidth / inputWidth;
         float scaleY = (float)maskHeight / inputHeight;
         
-        // Process mask and create person cutout
+        // Use bulk pixel operations for much better performance
+        int[] inputPixels = new int[inputWidth * inputHeight];
+        input.getPixels(inputPixels, 0, inputWidth, 0, 0, inputWidth, inputHeight);
+        
+        int[] outputPixels = new int[inputWidth * inputHeight];
+        
+        // Process mask efficiently - single pass through pixels
         for (int y = 0; y < inputHeight; y++) {
             for (int x = 0; x < inputWidth; x++) {
+                int pixelIndex = y * inputWidth + x;
                 int maskX = Math.min((int)(x * scaleX), maskWidth - 1);
                 int maskY = Math.min((int)(y * scaleY), maskHeight - 1);
                 int maskIndex = maskY * maskWidth + maskX;
                 
                 if (maskIndex < maskBuffer.capacity()) {
                     byte category = maskBuffer.get(maskIndex);
-                    // Category 1 is person, 0 is background
-                    if (category == 1) {
-                        personMask.setPixel(x, y, input.getPixel(x, y));
+                    // For selfie_segmenter.tflite: 0 is PERSON, 255 (-1 signed) is BACKGROUND
+                    if (category == 0) {
+                        outputPixels[pixelIndex] = inputPixels[pixelIndex]; // Keep person
                     } else {
-                        personMask.setPixel(x, y, Color.TRANSPARENT);
+                        outputPixels[pixelIndex] = backgroundColor; // Replace background
                     }
+                } else {
+                    outputPixels[pixelIndex] = backgroundColor; // Default to background
                 }
             }
         }
         
-        // Draw person on top of background
-        canvas.drawBitmap(personMask, 0, 0, paint);
-        personMask.recycle();
+        // Create output bitmap directly from pixel array
+        Bitmap output = Bitmap.createBitmap(outputPixels, inputWidth, inputHeight, Bitmap.Config.ARGB_8888);
         
         return output;
+    }
+    
+    private MPImage createMPImageFromBitmap(Bitmap bitmap) {
+        try {
+            int width = bitmap.getWidth();
+            int height = bitmap.getHeight();
+            
+            // Extract pixels in RGBA format
+            int[] pixels = new int[width * height];
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+            
+            // Try RGB format (3 bytes per pixel) instead of RGBA
+            ByteBuffer buffer = ByteBuffer.allocateDirect(width * height * 3);
+            for (int pixel : pixels) {
+                buffer.put((byte) ((pixel >> 16) & 0xFF)); // Red
+                buffer.put((byte) ((pixel >> 8) & 0xFF));  // Green
+                buffer.put((byte) (pixel & 0xFF));         // Blue
+                // Skip alpha channel
+            }
+            buffer.rewind();
+            
+            Log.d(TAG, String.format("Created manual RGB buffer: %d bytes (%dx%d * 3)", 
+                buffer.capacity(), width, height));
+            
+            // Create MPImage with RGB format
+            return new ByteBufferImageBuilder(buffer, width, height, MPImage.IMAGE_FORMAT_RGB).build();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Manual ByteBuffer creation failed, falling back to BitmapImageBuilder", e);
+            return new BitmapImageBuilder(bitmap).build();
+        }
     }
     
     private Bitmap frameToBitmap(VideoFrame frame, SurfaceTextureHelper textureHelper) {
