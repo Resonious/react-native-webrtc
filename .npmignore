@@ -7,3 +7,6 @@ android/build/
 *.tgz
 *.zip
 .github
+.claude
+android/.gradle
+android/local.properties
