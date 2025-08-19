@@ -2,14 +2,11 @@ package com.oney.WebRTCModule.videoEffects;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.util.Log;
 
 import com.google.mediapipe.framework.image.BitmapImageBuilder;
 import com.google.mediapipe.framework.image.ByteBufferExtractor;
-import com.google.mediapipe.framework.image.ByteBufferImageBuilder;
 import com.google.mediapipe.framework.image.MPImage;
 import com.google.mediapipe.tasks.core.BaseOptions;
 import com.google.mediapipe.tasks.core.Delegate;
@@ -25,7 +22,6 @@ import org.webrtc.VideoFrame.I420Buffer;
 import org.webrtc.YuvConverter;
 
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -53,7 +49,7 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
     
     // Temporal smoothing for better quality
     private byte[] previousMask = null;
-    private final float TEMPORAL_SMOOTHING = 0.15f; // How much to blend with previous frame
+    private final float TEMPORAL_SMOOTHING = 0.1f; // Lighter temporal smoothing for performance
     
     public MediaPipeBackgroundProcessor(Context context) {
         this(context, Color.WHITE);
@@ -161,22 +157,10 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             frameCount++;
             totalProcessingTime += totalTime;
             
-            // Log detailed timing breakdown every few frames
-            if (frameCount % 10 == 0) {
-                Log.d(TAG, String.format("Frame %d timing breakdown:", frameCount));
-                Log.d(TAG, String.format("  Bitmap conversion: %dms", bitmapTime));
-                Log.d(TAG, String.format("  MPImage creation: %dms", mpImageTime));
-                Log.d(TAG, String.format("  Segmentation: %dms", segmentationTime));
-                Log.d(TAG, String.format("  Apply background: %dms", applyTime));
-                Log.d(TAG, String.format("  VideoFrame conversion: %dms", videoFrameTime));
-                Log.d(TAG, String.format("  TOTAL: %dms", totalTime));
-                Log.d(TAG, String.format("  Average: %.1fms over %d frames", 
-                    (float)totalProcessingTime / frameCount, frameCount));
-            }
-            
-            if (frameCount % 30 == 0) {
-                Log.d(TAG, String.format("Avg processing time: %.2fms", 
-                    (float)totalProcessingTime / frameCount));
+            // Log performance summary much less frequently
+            if (frameCount % 100 == 0) {
+                Log.d(TAG, String.format("Frame %d - Avg processing time: %.1fms", 
+                    frameCount, (float)totalProcessingTime / frameCount));
             }
             
             return processedFrame != null ? processedFrame : frame;
@@ -199,7 +183,6 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         ByteBuffer maskBuffer;
         try {
             maskBuffer = ByteBufferExtractor.extract(segmentationResult.categoryMask().get());
-            Log.d(TAG, "Mask buffer extracted successfully, capacity: " + maskBuffer.capacity());
         } catch (Exception e) {
             Log.e(TAG, "Failed to extract mask buffer", e);
             return input;
@@ -225,16 +208,14 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             byte maskValue = smoothedMask[i];
             int maskInt = maskValue & 0xFF;
             
-            // Balanced filtering - keep reasonable person detection but reduce bleed-through
-            if (maskInt <= 60) { // Confident person pixels (less strict than 30)
+            // More inclusive for hair and fine details, less bleed-through bias
+            if (maskInt <= 80) { // More inclusive for hair and fine details
                 outputPixels[i] = inputPixels[i]; // Keep person
-            } else if (maskInt >= 180) { // Confident background pixels
+            } else if (maskInt >= 160) { // Confident background pixels
                 outputPixels[i] = backgroundColor; // Replace background
             } else {
-                // For uncertain areas, moderate bias towards background
-                // Use moderate alpha curve for smoother transitions
-                float alpha = (maskInt - 60) / 120.0f; // Scale 60-180 to 0-1
-                alpha = (float) Math.sqrt(alpha); // Square root for gentler curve
+                // For uncertain areas, use simple linear blending for performance
+                float alpha = (maskInt - 80) / 80.0f; // Scale 80-160 to 0-1
                 
                 int inputPixel = inputPixels[i];
                 int r = (int)((1 - alpha) * Color.red(inputPixel) + alpha * Color.red(backgroundColor));
@@ -272,79 +253,30 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             }
         }
         
-        // Apply moderate morphological operations to reduce bleed-through
-        byte[] tempMask = new byte[targetWidth * targetHeight];
+        // Simplified processing for better performance
+        System.arraycopy(resampledMask, 0, result, 0, result.length);
         
-        // Moderate erosion to remove noise but keep person intact
-        applyErosion(resampledMask, tempMask, targetWidth, targetHeight, 2);
+        // Light smoothing only - skip expensive erosion for performance
+        applyLightSmoothing(result, targetWidth, targetHeight);
         
-        // Copy to result for further processing
-        System.arraycopy(tempMask, 0, result, 0, result.length);
-        
-        // Apply Gaussian-like smoothing for better edges
-        applySmoothing(result, targetWidth, targetHeight);
-        
-        // Apply temporal smoothing with previous frame
+        // Apply temporal smoothing with previous frame (main quality improvement)
         applyTemporalSmoothing(result, targetWidth, targetHeight);
         
         return result;
     }
     
-    private void applyErosion(byte[] input, byte[] output, int width, int height, int kernelSize) {
-        int halfKernel = kernelSize / 2;
-        
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int index = y * width + x;
-                byte centerValue = input[index];
-                
-                // For person pixels (0), check if surrounded by person pixels
-                if (centerValue == 0) {
-                    boolean keepPerson = true;
-                    
-                    // Check kernel area around current pixel
-                    for (int ky = -halfKernel; ky <= halfKernel && keepPerson; ky++) {
-                        for (int kx = -halfKernel; kx <= halfKernel && keepPerson; kx++) {
-                            int ny = y + ky;
-                            int nx = x + kx;
-                            
-                            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-                                byte neighborValue = input[ny * width + nx];
-                                // If neighbor is background, erode this person pixel
-                                if ((neighborValue & 0xFF) == 255) {
-                                    keepPerson = false;
-                                }
-                            }
-                        }
-                    }
-                    
-                    output[index] = keepPerson ? (byte)0 : (byte)255;
-                } else {
-                    output[index] = centerValue; // Keep background as is
-                }
-            }
-        }
-    }
     
-    private void applySmoothing(byte[] mask, int width, int height) {
-        // Simple 3x3 smoothing kernel for edge softening
-        byte[] temp = new byte[width * height];
-        System.arraycopy(mask, 0, temp, 0, mask.length);
-        
-        for (int y = 1; y < height - 1; y++) {
+    private void applyLightSmoothing(byte[] mask, int width, int height) {
+        // Faster 3-point horizontal smoothing only for performance
+        for (int y = 0; y < height; y++) {
             for (int x = 1; x < width - 1; x++) {
                 int index = y * width + x;
+                int left = mask[index - 1] & 0xFF;
+                int center = mask[index] & 0xFF;
+                int right = mask[index + 1] & 0xFF;
                 
-                // Calculate average of 3x3 neighborhood
-                int sum = 0;
-                for (int dy = -1; dy <= 1; dy++) {
-                    for (int dx = -1; dx <= 1; dx++) {
-                        int neighborIndex = (y + dy) * width + (x + dx);
-                        sum += temp[neighborIndex] & 0xFF;
-                    }
-                }
-                
-                mask[index] = (byte)(sum / 9);
+                // Simple 3-point average
+                mask[index] = (byte)((left + center + right) / 3);
             }
         }
     }
@@ -373,181 +305,7 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         System.arraycopy(currentMask, 0, previousMask, 0, currentMask.length);
     }
     
-    private void applyConnectedComponentFiltering(byte[] input, byte[] output, int width, int height) {
-        // Simple connected component analysis to keep only the largest person blob
-        boolean[] visited = new boolean[width * height];
-        int[] componentSizes = new int[100]; // Support up to 100 components
-        byte[][] components = new byte[100][];
-        int numComponents = 0;
-        
-        // Initialize output as all background
-        for (int i = 0; i < output.length; i++) {
-            output[i] = (byte) 255;
-        }
-        
-        // Find connected components of person pixels (value 0)
-        for (int y = 0; y < height && numComponents < 100; y++) {
-            for (int x = 0; x < width && numComponents < 100; x++) {
-                int index = y * width + x;
-                
-                if (!visited[index] && input[index] == 0) {
-                    // Found unvisited person pixel - start flood fill
-                    byte[] component = new byte[width * height];
-                    int size = floodFill(input, visited, component, x, y, width, height);
-                    
-                    if (size > 50) { // Only keep components larger than 50 pixels
-                        components[numComponents] = component;
-                        componentSizes[numComponents] = size;
-                        numComponents++;
-                    }
-                }
-            }
-        }
-        
-        // Find the largest component
-        if (numComponents > 0) {
-            int largestIndex = 0;
-            for (int i = 1; i < numComponents; i++) {
-                if (componentSizes[i] > componentSizes[largestIndex]) {
-                    largestIndex = i;
-                }
-            }
-            
-            // Copy the largest component to output
-            if (components[largestIndex] != null) {
-                for (int i = 0; i < width * height; i++) {
-                    if (components[largestIndex][i] == 0) {
-                        output[i] = 0; // Person pixel
-                    }
-                }
-            }
-        }
-    }
     
-    private int floodFill(byte[] input, boolean[] visited, byte[] component, 
-                         int startX, int startY, int width, int height) {
-        // Simple stack-based flood fill
-        int[] stackX = new int[width * height];
-        int[] stackY = new int[width * height];
-        int stackSize = 0;
-        int componentSize = 0;
-        
-        // Initialize with start pixel
-        stackX[stackSize] = startX;
-        stackY[stackSize] = startY;
-        stackSize++;
-        
-        while (stackSize > 0) {
-            // Pop from stack
-            stackSize--;
-            int x = stackX[stackSize];
-            int y = stackY[stackSize];
-            int index = y * width + x;
-            
-            if (x < 0 || x >= width || y < 0 || y >= height || visited[index]) {
-                continue;
-            }
-            
-            if (input[index] != 0) { // Not a person pixel
-                continue;
-            }
-            
-            // Mark as visited and part of component
-            visited[index] = true;
-            component[index] = 0;
-            componentSize++;
-            
-            // Add neighbors to stack
-            if (stackSize < stackX.length - 4) {
-                stackX[stackSize] = x + 1; stackY[stackSize] = y; stackSize++;
-                stackX[stackSize] = x - 1; stackY[stackSize] = y; stackSize++;
-                stackX[stackSize] = x; stackY[stackSize] = y + 1; stackSize++;
-                stackX[stackSize] = x; stackY[stackSize] = y - 1; stackSize++;
-            }
-        }
-        
-        return componentSize;
-    }
-    
-    private void applyDilation(byte[] input, byte[] output, int width, int height, int kernelSize) {
-        int halfKernel = kernelSize / 2;
-        
-        // Initialize output as background
-        for (int i = 0; i < output.length; i++) {
-            output[i] = (byte) 255;
-        }
-        
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int index = y * width + x;
-                
-                // If current pixel is person, expand it
-                if (input[index] == 0) {
-                    // Dilate in kernel area
-                    for (int ky = -halfKernel; ky <= halfKernel; ky++) {
-                        for (int kx = -halfKernel; kx <= halfKernel; kx++) {
-                            int ny = y + ky;
-                            int nx = x + kx;
-                            
-                            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-                                output[ny * width + nx] = 0; // Make person
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    private MPImage createMPImageFromBitmap(Bitmap bitmap) {
-        try {
-            int width = bitmap.getWidth();
-            int height = bitmap.getHeight();
-            
-            // Extract pixels in RGBA format
-            int[] pixels = new int[width * height];
-            bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
-            
-            // Try RGB format (3 bytes per pixel) instead of RGBA
-            ByteBuffer buffer = ByteBuffer.allocateDirect(width * height * 3);
-            for (int pixel : pixels) {
-                buffer.put((byte) ((pixel >> 16) & 0xFF)); // Red
-                buffer.put((byte) ((pixel >> 8) & 0xFF));  // Green
-                buffer.put((byte) (pixel & 0xFF));         // Blue
-                // Skip alpha channel
-            }
-            buffer.rewind();
-            
-            Log.d(TAG, String.format("Created manual RGB buffer: %d bytes (%dx%d * 3)", 
-                buffer.capacity(), width, height));
-            
-            // Create MPImage with RGB format
-            return new ByteBufferImageBuilder(buffer, width, height, MPImage.IMAGE_FORMAT_RGB).build();
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Manual ByteBuffer creation failed, falling back to BitmapImageBuilder", e);
-            return new BitmapImageBuilder(bitmap).build();
-        }
-    }
-    
-    private Bitmap frameToBitmap(VideoFrame frame, SurfaceTextureHelper textureHelper) {
-        try {
-            Buffer buffer = frame.getBuffer();
-            
-            if (buffer instanceof TextureBuffer) {
-                return textureBufferToBitmap((TextureBuffer) buffer, textureHelper);
-            } else if (buffer instanceof I420Buffer) {
-                return i420BufferToBitmap((I420Buffer) buffer);
-            }
-            
-            Log.w(TAG, "Unsupported buffer type: " + buffer.getClass().getSimpleName());
-            return null;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error converting frame to bitmap", e);
-            return null;
-        }
-    }
     
     private Bitmap frameToBitmapOptimized(VideoFrame frame, SurfaceTextureHelper textureHelper) {
         try {
@@ -568,71 +326,6 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         }
     }
     
-    private Bitmap textureBufferToBitmap(TextureBuffer textureBuffer, SurfaceTextureHelper textureHelper) {
-        try {
-            if (yuvConverter == null) {
-                yuvConverter = new YuvConverter();
-            }
-            
-            I420Buffer i420Buffer = yuvConverter.convert(textureBuffer);
-            Bitmap bitmap = i420BufferToBitmap(i420Buffer);
-            i420Buffer.release();
-            
-            return bitmap;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error converting texture buffer to bitmap", e);
-            return null;
-        }
-    }
-    
-    private Bitmap i420BufferToBitmap(I420Buffer i420Buffer) {
-        try {
-            int width = i420Buffer.getWidth();
-            int height = i420Buffer.getHeight();
-            
-            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            
-            ByteBuffer yBuffer = i420Buffer.getDataY();
-            ByteBuffer uBuffer = i420Buffer.getDataU();
-            ByteBuffer vBuffer = i420Buffer.getDataV();
-            
-            int yStride = i420Buffer.getStrideY();
-            int uStride = i420Buffer.getStrideU();
-            int vStride = i420Buffer.getStrideV();
-            
-            int[] pixels = new int[width * height];
-            
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    int yIndex = y * yStride + x;
-                    int uvIndex = (y / 2) * uStride + (x / 2);
-                    
-                    int yValue = yBuffer.get(yIndex) & 0xFF;
-                    int uValue = uBuffer.get(uvIndex) & 0xFF;
-                    int vValue = vBuffer.get(uvIndex) & 0xFF;
-                    
-                    // YUV to RGB conversion
-                    int r = (int) (yValue + 1.402 * (vValue - 128));
-                    int g = (int) (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128));
-                    int b = (int) (yValue + 1.772 * (uValue - 128));
-                    
-                    r = Math.max(0, Math.min(255, r));
-                    g = Math.max(0, Math.min(255, g));
-                    b = Math.max(0, Math.min(255, b));
-                    
-                    pixels[y * width + x] = Color.rgb(r, g, b);
-                }
-            }
-            
-            bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
-            return bitmap;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error converting I420 to bitmap", e);
-            return null;
-        }
-    }
     
     private Bitmap textureBufferToBitmapOptimized(TextureBuffer textureBuffer, SurfaceTextureHelper textureHelper) {
         try {
