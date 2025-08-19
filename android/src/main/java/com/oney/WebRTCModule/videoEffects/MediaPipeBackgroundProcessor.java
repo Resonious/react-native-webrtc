@@ -105,36 +105,17 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         try {
             long totalStartTime = System.currentTimeMillis();
             
-            // Convert frame to Bitmap
+            // Convert frame to Bitmap optimized for processing
             long bitmapStart = System.currentTimeMillis();
-            Bitmap inputBitmap = frameToBitmap(frame, textureHelper);
+            Bitmap inputBitmap = frameToBitmapOptimized(frame, textureHelper);
             if (inputBitmap == null) {
                 return frame;
             }
-            
-            // Scale down for processing to improve performance
-            int originalWidth = inputBitmap.getWidth();
-            int originalHeight = inputBitmap.getHeight();
-            int processingWidth = originalWidth / 2;  // Half resolution for processing
-            int processingHeight = originalHeight / 2;
-            
-            Bitmap scaledBitmap = Bitmap.createScaledBitmap(inputBitmap, processingWidth, processingHeight, false);
             long bitmapTime = System.currentTimeMillis() - bitmapStart;
             
-            // Ensure scaled bitmap is in ARGB_8888 format like Google's example
-            long formatStart = System.currentTimeMillis();
-            Bitmap processedBitmap;
-            if (scaledBitmap.getConfig() != Bitmap.Config.ARGB_8888) {
-                processedBitmap = scaledBitmap.copy(Bitmap.Config.ARGB_8888, false);
-                Log.d(TAG, "Converted bitmap to ARGB_8888");
-            } else {
-                processedBitmap = scaledBitmap;
-            }
-            long formatTime = System.currentTimeMillis() - formatStart;
-            
-            // Use simple BitmapImageBuilder approach
+            // Use bitmap directly for MediaPipe - no additional scaling
             long mpImageStart = System.currentTimeMillis();
-            MPImage mpImage = new BitmapImageBuilder(processedBitmap).build();
+            MPImage mpImage = new BitmapImageBuilder(inputBitmap).build();
             long mpImageTime = System.currentTimeMillis() - mpImageStart;
             
             // Perform segmentation using VIDEO mode with proper timestamps
@@ -143,7 +124,7 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             ImageSegmenterResult result = imageSegmenter.segmentForVideo(mpImage, timestampMs);
             long segmentationTime = System.currentTimeMillis() - segmentationStart;
             
-            // Apply background replacement on original size bitmap
+            // Apply background replacement directly on input bitmap
             long applyStart = System.currentTimeMillis();
             Bitmap outputBitmap = applyBackground(inputBitmap, result);
             long applyTime = System.currentTimeMillis() - applyStart;
@@ -166,12 +147,6 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             }
             
             // Clean up
-            if (processedBitmap != scaledBitmap) {
-                processedBitmap.recycle();
-            }
-            if (scaledBitmap != inputBitmap) {
-                scaledBitmap.recycle();
-            }
             inputBitmap.recycle();
             outputBitmap.recycle();
             mpImage.close();
@@ -185,7 +160,6 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             if (frameCount % 10 == 0) {
                 Log.d(TAG, String.format("Frame %d timing breakdown:", frameCount));
                 Log.d(TAG, String.format("  Bitmap conversion: %dms", bitmapTime));
-                Log.d(TAG, String.format("  Format check: %dms", formatTime));
                 Log.d(TAG, String.format("  MPImage creation: %dms", mpImageTime));
                 Log.d(TAG, String.format("  Segmentation: %dms", segmentationTime));
                 Log.d(TAG, String.format("  Apply background: %dms", applyTime));
@@ -333,6 +307,25 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
         }
     }
     
+    private Bitmap frameToBitmapOptimized(VideoFrame frame, SurfaceTextureHelper textureHelper) {
+        try {
+            Buffer buffer = frame.getBuffer();
+            
+            if (buffer instanceof TextureBuffer) {
+                return textureBufferToBitmapOptimized((TextureBuffer) buffer, textureHelper);
+            } else if (buffer instanceof I420Buffer) {
+                return i420BufferToBitmapOptimized((I420Buffer) buffer);
+            }
+            
+            Log.w(TAG, "Unsupported buffer type: " + buffer.getClass().getSimpleName());
+            return null;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error converting frame to bitmap (optimized)", e);
+            return null;
+        }
+    }
+    
     private Bitmap textureBufferToBitmap(TextureBuffer textureBuffer, SurfaceTextureHelper textureHelper) {
         try {
             if (yuvConverter == null) {
@@ -395,6 +388,79 @@ public class MediaPipeBackgroundProcessor implements VideoFrameProcessor {
             
         } catch (Exception e) {
             Log.e(TAG, "Error converting I420 to bitmap", e);
+            return null;
+        }
+    }
+    
+    private Bitmap textureBufferToBitmapOptimized(TextureBuffer textureBuffer, SurfaceTextureHelper textureHelper) {
+        try {
+            if (yuvConverter == null) {
+                yuvConverter = new YuvConverter();
+            }
+            
+            // Use YuvConverter's optimized path directly to bitmap
+            I420Buffer i420Buffer = yuvConverter.convert(textureBuffer);
+            Bitmap bitmap = i420BufferToBitmapOptimized(i420Buffer);
+            i420Buffer.release();
+            
+            return bitmap;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error converting texture buffer to bitmap (optimized)", e);
+            return null;
+        }
+    }
+    
+    private Bitmap i420BufferToBitmapOptimized(I420Buffer i420Buffer) {
+        try {
+            int width = i420Buffer.getWidth();
+            int height = i420Buffer.getHeight();
+            
+            // Pre-allocate pixel array
+            int[] pixels = new int[width * height];
+            
+            ByteBuffer yBuffer = i420Buffer.getDataY();
+            ByteBuffer uBuffer = i420Buffer.getDataU();
+            ByteBuffer vBuffer = i420Buffer.getDataV();
+            
+            int yStride = i420Buffer.getStrideY();
+            int uStride = i420Buffer.getStrideU();
+            
+            // Optimized YUV to RGB conversion with fewer lookups
+            for (int y = 0; y < height; y++) {
+                int yRowIndex = y * yStride;
+                int uvRowIndex = (y / 2) * uStride;
+                int pixelRowIndex = y * width;
+                
+                for (int x = 0; x < width; x++) {
+                    int yValue = yBuffer.get(yRowIndex + x) & 0xFF;
+                    int uvIndex = uvRowIndex + (x / 2);
+                    int uValue = uBuffer.get(uvIndex) & 0xFF;
+                    int vValue = vBuffer.get(uvIndex) & 0xFF;
+                    
+                    // Fast YUV to RGB conversion using integer math
+                    int c = yValue - 16;
+                    int d = uValue - 128;
+                    int e = vValue - 128;
+                    
+                    int r = (298 * c + 409 * e + 128) >> 8;
+                    int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+                    int b = (298 * c + 516 * d + 128) >> 8;
+                    
+                    // Clamp values efficiently
+                    r = r < 0 ? 0 : (r > 255 ? 255 : r);
+                    g = g < 0 ? 0 : (g > 255 ? 255 : g);
+                    b = b < 0 ? 0 : (b > 255 ? 255 : b);
+                    
+                    pixels[pixelRowIndex + x] = (0xFF << 24) | (r << 16) | (g << 8) | b;
+                }
+            }
+            
+            // Create bitmap directly from pixel array
+            return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error converting I420 to bitmap (optimized)", e);
             return null;
         }
     }
