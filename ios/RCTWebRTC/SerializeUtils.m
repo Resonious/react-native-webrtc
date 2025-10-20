@@ -25,7 +25,15 @@
 + (NSMutableArray *)constructTransceiversInfoArrayWithPeerConnection:(RTCPeerConnection *)peerConnection {
     NSMutableArray *transceiverUpdates = [NSMutableArray new];
 
+    if (!peerConnection || !peerConnection.transceivers) {
+        return transceiverUpdates;
+    }
+
     for (RTCRtpTransceiver *transceiver in peerConnection.transceivers) {
+        if (!transceiver || !transceiver.sender || !transceiver.receiver) {
+            continue;
+        }
+
         NSMutableDictionary *transceiverUpdate = [NSMutableDictionary new];
 
         RTCRtpTransceiverDirection currentDirection;
