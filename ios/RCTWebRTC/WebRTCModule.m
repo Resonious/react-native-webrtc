@@ -8,9 +8,11 @@
 #import <React/RCTUtils.h>
 
 #import "WebRTCModule+RTCPeerConnection.h"
+#import "WebRTCModule+RTCAudioSession.h"
 #import "WebRTCModule.h"
 #import "WebRTCModuleOptions.h"
 #import "BackgroundEffectProcessorProvider.h"
+#import "RTCEngineAvailabilityHelper.h"
 
 @interface WebRTCModule ()
 @end
@@ -89,6 +91,9 @@
                                                                                decoderFactory:decoderFactory
                                                                                   audioDevice:audioDevice];
         }
+
+        // Store factory reference for CallKit audio engine control
+        [RTCEngineAvailabilityHelper setSharedPeerConnectionFactory:_peerConnectionFactory];
 
         _peerConnections = [NSMutableDictionary new];
         _localStreams = [NSMutableDictionary new];
