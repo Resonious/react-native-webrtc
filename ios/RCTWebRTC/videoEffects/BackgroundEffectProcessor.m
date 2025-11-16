@@ -44,7 +44,7 @@
 - (void)setupVision {
     if (@available(iOS 15.0, *)) {
         _segmentationRequest = [[VNGeneratePersonSegmentationRequest alloc] init];
-        
+
         // Map NSInteger to VNPersonSegmentationQualityLevel enum using raw values
         // VNPersonSegmentationQualityLevelFast = 0, Balanced = 1, Accurate = 2
         switch (_qualityLevel) {
@@ -61,8 +61,11 @@
                 _segmentationRequest.qualityLevel = 1; // VNPersonSegmentationQualityLevelBalanced
                 break;
         }
-        
+
         _segmentationRequest.outputPixelFormat = kCVPixelFormatType_OneComponent8;
+
+        // Create sequence request handler for efficient video processing
+        _sequenceRequestHandler = [[VNSequenceRequestHandler alloc] init];
     } else {
         NSLog(@"Person segmentation requires iOS 15.0+");
     }
@@ -327,36 +330,47 @@
 
 - (CVPixelBufferRef)processPixelBuffer:(CVPixelBufferRef)inputBuffer {
     // NSLog(@"🔄 Starting processPixelBuffer...");
-    
+
     if (@available(iOS 15.0, *)) {
         // NSLog(@"📱 iOS 15+ available, performing segmentation...");
-        
+
         @autoreleasepool {
-            // Perform person segmentation
-            VNImageRequestHandler *handler = [[VNImageRequestHandler alloc]
-                initWithCVPixelBuffer:inputBuffer options:@{}];
-            
+            // Perform person segmentation using sequence request handler
+            // VNSequenceRequestHandler is NOT thread-safe, so we synchronize access
+            // We must also capture results within the synchronized block because
+            // _segmentationRequest.results can be overwritten by concurrent calls
             NSError *error = nil;
-            BOOL success = [handler performRequests:@[_segmentationRequest] error:&error];
-            
+            BOOL success;
+            VNPixelBufferObservation *observation = nil;
+
+            @synchronized(self) {
+                success = [_sequenceRequestHandler performRequests:@[_segmentationRequest]
+                                                    onCVPixelBuffer:inputBuffer
+                                                              error:&error];
+
+                // Capture results immediately while still synchronized
+                if (success && !error) {
+                    observation = _segmentationRequest.results.firstObject;
+                }
+            }
+
             if (error) {
                 NSLog(@"❌ Segmentation error: %@", error);
                 return NULL;
             }
-            
+
             if (!success) {
                 NSLog(@"❌ Segmentation request failed - creating fallback solid background for testing");
                 // Create a simple solid background for testing on simulator
                 return [self createSolidBackground:inputBuffer];
             }
-            
+
             // NSLog(@"📊 Segmentation request completed, checking results...");
-            VNPixelBufferObservation *observation = _segmentationRequest.results.firstObject;
             if (!observation) {
                 NSLog(@"❌ No segmentation observation found");
                 return NULL;
             }
-            
+
             // NSLog(@"🎭 Observation found, applying background effect...");
             // Apply background replacement
             CVPixelBufferRef result = [self applyBackgroundEffect:inputBuffer withMask:observation.pixelBuffer];
@@ -367,7 +381,7 @@
             }
             return result;
         }
-        
+
     } else {
         NSLog(@"⚠️ iOS 15+ not available, returning original buffer");
         // Fallback for older iOS versions - return original

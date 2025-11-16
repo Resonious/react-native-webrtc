@@ -7,6 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Forward declarations for Vision framework
 @class VNGeneratePersonSegmentationRequest;
+@class VNSequenceRequestHandler;
 
 /**
  * Video frame processor that replaces the background with a solid color using Vision framework.
@@ -18,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong) UIColor *backgroundColor;
 @property (nonatomic, strong) CIContext *ciContext;
 @property (nonatomic, strong) VNGeneratePersonSegmentationRequest *segmentationRequest;
+@property (nonatomic, strong) VNSequenceRequestHandler *sequenceRequestHandler;
 @property (nonatomic, assign) NSInteger qualityLevel; // Using NSInteger for Vision framework compatibility
 
 - (instancetype)init;
