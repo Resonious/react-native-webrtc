@@ -109,20 +109,102 @@
         NSLog(@"🚫 No segmentation request - returning original frame");
         return frame; // Return original if Vision not available
     }
-    
-    // Check if we're already processing
-    @synchronized(_processingLock) {
-        if (_isProcessing) {
-            // Already processing - return last completed frame or solid color
+
+    @autoreleasepool {
+        // Check if we're already processing
+        @synchronized(_processingLock) {
+            if (_isProcessing) {
+                // Already processing - return last completed frame or solid color
+                if (_lastCompletedFrame) {
+                    // Return cached frame with current timestamp to maintain timing
+                    RTCVideoFrame *cachedFrame = [[RTCVideoFrame alloc] initWithBuffer:_lastCompletedFrame.buffer
+                                                                              rotation:frame.rotation
+                                                                           timeStampNs:frame.timeStampNs];
+                    // NSLog(@"⏭️ Skipping frame - returning cached frame");
+                    return cachedFrame;
+                } else {
+                    // No cached frame yet, return solid color background
+                    CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
+                    if (!pixelBuffer) {
+                        return frame;
+                    }
+                    
+                    CVPixelBufferRef solidBuffer = [self createSolidBackground:pixelBuffer];
+                    CVPixelBufferRelease(pixelBuffer);
+                    
+                    if (!solidBuffer) {
+                        return frame;
+                    }
+                    
+                    RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:solidBuffer];
+                    RTCVideoFrame *solidFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                                             rotation:frame.rotation
+                                                                          timeStampNs:frame.timeStampNs];
+                    CVPixelBufferRelease(solidBuffer);
+                    
+                    // NSLog(@"⏭️ Skipping frame - no cache yet, returning solid color");
+                    return solidFrame;
+                }
+            }
+            _isProcessing = YES;
+        }
+        
+        // Start async processing
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(_processingQueue, ^{
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            
+            @autoreleasepool {
+                // Get the pixel buffer from the frame
+                CVPixelBufferRef pixelBuffer = [strongSelf pixelBufferFromFrame:frame];
+                if (!pixelBuffer) {
+                    NSLog(@"❌ Could not get pixel buffer from frame");
+                    @synchronized(strongSelf->_processingLock) {
+                        strongSelf->_isProcessing = NO;
+                    }
+                    return;
+                }
+                
+                // Process the frame
+                CVPixelBufferRef processedBuffer = [strongSelf processPixelBuffer:pixelBuffer];
+                if (!processedBuffer) {
+                    NSLog(@"❌ Could not process pixel buffer");
+                    CVPixelBufferRelease(pixelBuffer);
+                    @synchronized(strongSelf->_processingLock) {
+                        strongSelf->_isProcessing = NO;
+                    }
+                    return;
+                }
+                
+                // Create new RTCVideoFrame with processed buffer
+                RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
+                RTCVideoFrame *processedFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
+                                                                              rotation:frame.rotation
+                                                                           timeStampNs:frame.timeStampNs];
+                
+                CVPixelBufferRelease(pixelBuffer);
+                CVPixelBufferRelease(processedBuffer);
+                
+                // Update cached frame
+                @synchronized(strongSelf->_processingLock) {
+                    strongSelf->_lastCompletedFrame = processedFrame;
+                    strongSelf->_isProcessing = NO;
+                    NSLog(@"✅ Processing complete - cached new frame");
+                }
+            }
+        });
+        
+        // Return last completed frame or solid color while processing
+        @synchronized(_processingLock) {
             if (_lastCompletedFrame) {
-                // Return cached frame with current timestamp to maintain timing
+                // Return cached frame with current timestamp
                 RTCVideoFrame *cachedFrame = [[RTCVideoFrame alloc] initWithBuffer:_lastCompletedFrame.buffer
                                                                           rotation:frame.rotation
                                                                        timeStampNs:frame.timeStampNs];
-                // NSLog(@"⏭️ Skipping frame - returning cached frame");
                 return cachedFrame;
             } else {
-                // No cached frame yet, return solid color background
+                // First frame - create solid color frame while processing
                 CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
                 if (!pixelBuffer) {
                     return frame;
@@ -141,89 +223,9 @@
                                                                       timeStampNs:frame.timeStampNs];
                 CVPixelBufferRelease(solidBuffer);
                 
-                // NSLog(@"⏭️ Skipping frame - no cache yet, returning solid color");
+                NSLog(@"🎨 Returning solid color frame for first frame");
                 return solidFrame;
             }
-        }
-        _isProcessing = YES;
-    }
-    
-    // Start async processing
-    __weak typeof(self) weakSelf = self;
-    dispatch_async(_processingQueue, ^{
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) return;
-        
-        @autoreleasepool {
-            // Get the pixel buffer from the frame
-            CVPixelBufferRef pixelBuffer = [strongSelf pixelBufferFromFrame:frame];
-            if (!pixelBuffer) {
-                NSLog(@"❌ Could not get pixel buffer from frame");
-                @synchronized(strongSelf->_processingLock) {
-                    strongSelf->_isProcessing = NO;
-                }
-                return;
-            }
-            
-            // Process the frame
-            CVPixelBufferRef processedBuffer = [strongSelf processPixelBuffer:pixelBuffer];
-            if (!processedBuffer) {
-                NSLog(@"❌ Could not process pixel buffer");
-                CVPixelBufferRelease(pixelBuffer);
-                @synchronized(strongSelf->_processingLock) {
-                    strongSelf->_isProcessing = NO;
-                }
-                return;
-            }
-            
-            // Create new RTCVideoFrame with processed buffer
-            RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:processedBuffer];
-            RTCVideoFrame *processedFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
-                                                                          rotation:frame.rotation
-                                                                       timeStampNs:frame.timeStampNs];
-            
-            CVPixelBufferRelease(pixelBuffer);
-            CVPixelBufferRelease(processedBuffer);
-            
-            // Update cached frame
-            @synchronized(strongSelf->_processingLock) {
-                strongSelf->_lastCompletedFrame = processedFrame;
-                strongSelf->_isProcessing = NO;
-                NSLog(@"✅ Processing complete - cached new frame");
-            }
-        }
-    });
-    
-    // Return last completed frame or solid color while processing
-    @synchronized(_processingLock) {
-        if (_lastCompletedFrame) {
-            // Return cached frame with current timestamp
-            RTCVideoFrame *cachedFrame = [[RTCVideoFrame alloc] initWithBuffer:_lastCompletedFrame.buffer
-                                                                      rotation:frame.rotation
-                                                                   timeStampNs:frame.timeStampNs];
-            return cachedFrame;
-        } else {
-            // First frame - create solid color frame while processing
-            CVPixelBufferRef pixelBuffer = [self pixelBufferFromFrame:frame];
-            if (!pixelBuffer) {
-                return frame;
-            }
-            
-            CVPixelBufferRef solidBuffer = [self createSolidBackground:pixelBuffer];
-            CVPixelBufferRelease(pixelBuffer);
-            
-            if (!solidBuffer) {
-                return frame;
-            }
-            
-            RTCCVPixelBuffer *rtcPixelBuffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:solidBuffer];
-            RTCVideoFrame *solidFrame = [[RTCVideoFrame alloc] initWithBuffer:rtcPixelBuffer
-                                                                     rotation:frame.rotation
-                                                                  timeStampNs:frame.timeStampNs];
-            CVPixelBufferRelease(solidBuffer);
-            
-            NSLog(@"🎨 Returning solid color frame for first frame");
-            return solidFrame;
         }
     }
 }
