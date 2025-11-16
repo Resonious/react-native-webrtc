@@ -85,6 +85,21 @@
         (__bridge NSString *)kCVPixelBufferHeightKey : @(720),
         (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{}
     };
+
+    // Create the pixel buffer pool
+    CVReturn result = CVPixelBufferPoolCreate(
+        kCFAllocatorDefault,
+        NULL,  // pool attributes (NULL uses defaults)
+        (__bridge CFDictionaryRef)_pixelBufferAttributes,
+        &_pixelBufferPool
+    );
+
+    if (result != kCVReturnSuccess) {
+        NSLog(@"❌ Failed to create CVPixelBufferPool: %d", result);
+        _pixelBufferPool = NULL;
+    } else {
+        NSLog(@"✅ Created CVPixelBufferPool successfully");
+    }
 }
 
 - (RTCVideoFrame *)capturer:(RTCVideoCapturer *)capturer 
@@ -227,26 +242,37 @@
     // If it's I420, convert to CVPixelBuffer
     if ([buffer conformsToProtocol:@protocol(RTCI420Buffer)]) {
         id<RTCI420Buffer> i420Buffer = (id<RTCI420Buffer>)buffer;
-        
-        // Create pixel buffer
+
+        // Create pixel buffer from pool
         CVPixelBufferRef pixelBuffer = NULL;
-        CVReturn result = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            i420Buffer.width,
-            i420Buffer.height,
-            kCVPixelFormatType_32BGRA,
-            (__bridge CFDictionaryRef)_pixelBufferAttributes,
-            &pixelBuffer
-        );
-        
+        CVReturn result;
+
+        if (_pixelBufferPool) {
+            result = CVPixelBufferPoolCreatePixelBuffer(
+                kCFAllocatorDefault,
+                _pixelBufferPool,
+                &pixelBuffer
+            );
+        } else {
+            // Fallback to direct creation if pool isn't available
+            result = CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                i420Buffer.width,
+                i420Buffer.height,
+                kCVPixelFormatType_32BGRA,
+                (__bridge CFDictionaryRef)_pixelBufferAttributes,
+                &pixelBuffer
+            );
+        }
+
         if (result != kCVReturnSuccess || !pixelBuffer) {
             return NULL;
         }
-        
+
         // Convert I420 to BGRA
         NSLog(@"⚠️  Converting to BGRA!");
         [self convertI420Buffer:i420Buffer toPixelBuffer:pixelBuffer];
-        
+
         return pixelBuffer;
     }
     
@@ -385,44 +411,66 @@
         [blendFilter setValue:binaryMask forKey:kCIInputMaskImageKey];
         
         CIImage *outputImage = blendFilter.outputImage;
-        
-        // Create output pixel buffer
+
+        // Create output pixel buffer from pool
         CVPixelBufferRef outputBuffer = NULL;
-        CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            CVPixelBufferGetWidth(inputBuffer),
-            CVPixelBufferGetHeight(inputBuffer),
-            CVPixelBufferGetPixelFormatType(inputBuffer),
-            (__bridge CFDictionaryRef)_pixelBufferAttributes,
-            &outputBuffer
-        );
-        
-        if (outputBuffer) {
+        CVReturn result;
+
+        if (_pixelBufferPool) {
+            result = CVPixelBufferPoolCreatePixelBuffer(
+                kCFAllocatorDefault,
+                _pixelBufferPool,
+                &outputBuffer
+            );
+        } else {
+            // Fallback to direct creation if pool isn't available
+            result = CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                CVPixelBufferGetWidth(inputBuffer),
+                CVPixelBufferGetHeight(inputBuffer),
+                CVPixelBufferGetPixelFormatType(inputBuffer),
+                (__bridge CFDictionaryRef)_pixelBufferAttributes,
+                &outputBuffer
+            );
+        }
+
+        if (result == kCVReturnSuccess && outputBuffer) {
             [_ciContext render:outputImage toCVPixelBuffer:outputBuffer];
         }
-        
+
         return outputBuffer;
     }
 }
 
 - (CVPixelBufferRef)createSolidBackground:(CVPixelBufferRef)inputBuffer {
     NSLog(@"🎨 Creating solid background fallback (no person segmentation)");
-    
+
     // Get dimensions from input buffer
     size_t width = CVPixelBufferGetWidth(inputBuffer);
     size_t height = CVPixelBufferGetHeight(inputBuffer);
-    
-    // Create output buffer with same dimensions
+
+    // Create output buffer from pool
     CVPixelBufferRef outputBuffer = NULL;
-    CVReturn result = CVPixelBufferCreate(
-        kCFAllocatorDefault,
-        width,
-        height,
-        kCVPixelFormatType_32BGRA,
-        (__bridge CFDictionaryRef)_pixelBufferAttributes,
-        &outputBuffer
-    );
-    
+    CVReturn result;
+
+    if (_pixelBufferPool) {
+        result = CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault,
+            _pixelBufferPool,
+            &outputBuffer
+        );
+    } else {
+        // Fallback to direct creation if pool isn't available
+        result = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            (__bridge CFDictionaryRef)_pixelBufferAttributes,
+            &outputBuffer
+        );
+    }
+
     if (result != kCVReturnSuccess || !outputBuffer) {
         NSLog(@"❌ Failed to create output buffer");
         return NULL;
