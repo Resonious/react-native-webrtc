@@ -341,16 +341,21 @@
             // _segmentationRequest.results can be overwritten by concurrent calls
             NSError *error = nil;
             BOOL success;
-            VNPixelBufferObservation *observation = nil;
+            CVPixelBufferRef maskBuffer = NULL;
 
             @synchronized(self) {
                 success = [_sequenceRequestHandler performRequests:@[_segmentationRequest]
                                                     onCVPixelBuffer:inputBuffer
                                                               error:&error];
 
-                // Capture results immediately while still synchronized
+                // Capture and retain the mask pixel buffer immediately while still synchronized
+                // The observation's pixelBuffer might be invalidated when the next request runs
                 if (success && !error) {
-                    observation = _segmentationRequest.results.firstObject;
+                    VNPixelBufferObservation *observation = _segmentationRequest.results.firstObject;
+                    if (observation && observation.pixelBuffer) {
+                        maskBuffer = observation.pixelBuffer;
+                        CVPixelBufferRetain(maskBuffer);
+                    }
                 }
             }
 
@@ -366,14 +371,18 @@
             }
 
             // NSLog(@"📊 Segmentation request completed, checking results...");
-            if (!observation) {
+            if (!maskBuffer) {
                 NSLog(@"❌ No segmentation observation found");
                 return NULL;
             }
 
             // NSLog(@"🎭 Observation found, applying background effect...");
             // Apply background replacement
-            CVPixelBufferRef result = [self applyBackgroundEffect:inputBuffer withMask:observation.pixelBuffer];
+            CVPixelBufferRef result = [self applyBackgroundEffect:inputBuffer withMask:maskBuffer];
+
+            // Release our retained mask buffer
+            CVPixelBufferRelease(maskBuffer);
+
             if (result) {
                 // NSLog(@"✨ Background effect applied successfully!");
             } else {
