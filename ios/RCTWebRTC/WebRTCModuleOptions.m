@@ -23,6 +23,8 @@
         self.videoDecoderFactory = nil;
         self.loggingSeverity = RTCLoggingSeverityNone;
         self.defaultTrackVolume = 1.0;
+        self.initialEngineAvailabilityInput = YES;
+        self.initialEngineAvailabilityOutput = YES;
     }
 
     return self;

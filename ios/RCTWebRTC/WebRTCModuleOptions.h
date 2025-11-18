@@ -15,6 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(nonatomic, assign) double defaultTrackVolume;
 
+@property(nonatomic, assign) BOOL initialEngineAvailabilityInput;
+@property(nonatomic, assign) BOOL initialEngineAvailabilityOutput;
+
 #pragma mark - This class is a singleton
 
 + (instancetype _Nonnull)sharedInstance;

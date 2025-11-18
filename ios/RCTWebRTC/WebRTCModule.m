@@ -91,6 +91,12 @@
         // Store factory reference for CallKit audio engine control
         [RTCEngineAvailabilityHelper setSharedPeerConnectionFactory:_peerConnectionFactory];
 
+        // Set initial engine availability from options
+        BOOL inputAvailable = options.initialEngineAvailabilityInput;
+        BOOL outputAvailable = options.initialEngineAvailabilityOutput;
+        NSLog(@"[WebRTCModule] Setting initial engine availability - input: %d, output: %d", inputAvailable, outputAvailable);
+        [RTCEngineAvailabilityHelper setEngineAvailabilityWithInput:inputAvailable output:outputAvailable];
+
         _peerConnections = [NSMutableDictionary new];
         _localStreams = [NSMutableDictionary new];
         _localTracks = [NSMutableDictionary new];
