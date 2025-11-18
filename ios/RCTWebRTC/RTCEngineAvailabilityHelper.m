@@ -28,8 +28,12 @@ static __weak RTCPeerConnectionFactory *sharedPeerConnectionFactory = nil;
         .isInputAvailable = isInputAvailable,
         .isOutputAvailable = isOutputAvailable
     };
-    [audioDeviceModule setEngineAvailability:availability];
-    NSLog(@"[RTCEngineAvailabilityHelper] Set engine availability - input: %d, output: %d", isInputAvailable, isOutputAvailable);
+    int result = [audioDeviceModule setEngineAvailability:availability];
+    if (result == -1) {
+        NSLog(@"[RTCEngineAvailabilityHelper] Error: setEngineAvailability failed with return code -1 (input: %d, output: %d)", isInputAvailable, isOutputAvailable);
+        return NO;
+    }
+    NSLog(@"[RTCEngineAvailabilityHelper] Set engine availability - input: %d, output: %d (result: %d)", isInputAvailable, isOutputAvailable, result);
     return YES;
 }
 

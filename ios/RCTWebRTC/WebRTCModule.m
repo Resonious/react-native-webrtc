@@ -73,11 +73,7 @@
         RCTLogInfo(@"Using video encoder factory: %@", NSStringFromClass([encoderFactory class]));
         RCTLogInfo(@"Using video decoder factory: %@", NSStringFromClass([decoderFactory class]));
 
-        if (audioProcessingModule != nil) {
-            if (audioDevice != nil) {
-                NSLog(@"Both audioProcessingModule and audioDevice are provided, but only one can be used. Ignoring "
-                      @"audioDevice.");
-            }
+        if (audioDevice == nil) {
             RCTLogInfo(@"Using audio processing module: %@", NSStringFromClass([audioProcessingModule class]));
             _peerConnectionFactory =
                 [[RTCPeerConnectionFactory alloc] initWithAudioDeviceModuleType:RTCAudioDeviceModuleTypeAudioEngine
