@@ -89,13 +89,19 @@
         }
 
         // Store factory reference for CallKit audio engine control
-        [RTCEngineAvailabilityHelper setSharedPeerConnectionFactory:_peerConnectionFactory];
+        // This also applies any pending engine availability state from CallKit (if app was cold-started from push)
+        BOOL pendingStateApplied = [RTCEngineAvailabilityHelper setSharedPeerConnectionFactory:_peerConnectionFactory];
 
-        // Set initial engine availability from options
-        BOOL inputAvailable = options.initialEngineAvailabilityInput;
-        BOOL outputAvailable = options.initialEngineAvailabilityOutput;
-        NSLog(@"[WebRTCModule] Setting initial engine availability - input: %d, output: %d", inputAvailable, outputAvailable);
-        [RTCEngineAvailabilityHelper setEngineAvailabilityWithInput:inputAvailable output:outputAvailable];
+        // Set initial engine availability from options, but ONLY if we didn't apply pending CallKit state
+        // This prevents overriding the audio state that CallKit set before WebRTC was initialized
+        if (!pendingStateApplied) {
+            BOOL inputAvailable = options.initialEngineAvailabilityInput;
+            BOOL outputAvailable = options.initialEngineAvailabilityOutput;
+            NSLog(@"[WebRTCModule] Setting initial engine availability - input: %d, output: %d", inputAvailable, outputAvailable);
+            [RTCEngineAvailabilityHelper setEngineAvailabilityWithInput:inputAvailable output:outputAvailable];
+        } else {
+            NSLog(@"[WebRTCModule] Skipping initial engine availability (CallKit pending state was applied)");
+        }
 
         _peerConnections = [NSMutableDictionary new];
         _localStreams = [NSMutableDictionary new];

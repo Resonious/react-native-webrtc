@@ -4,16 +4,35 @@
 // Store a weak reference to the peerConnectionFactory
 static __weak RTCPeerConnectionFactory *sharedPeerConnectionFactory = nil;
 
+// Store pending engine availability state for when factory isn't ready yet
+static BOOL hasPendingAvailability = NO;
+static BOOL pendingInputAvailable = NO;
+static BOOL pendingOutputAvailable = NO;
+
 @implementation RTCEngineAvailabilityHelper
 
-+ (void)setSharedPeerConnectionFactory:(RTCPeerConnectionFactory *)factory {
++ (BOOL)setSharedPeerConnectionFactory:(RTCPeerConnectionFactory *)factory {
     sharedPeerConnectionFactory = factory;
+
+    // If there's a pending availability state from CallKit, apply it now
+    if (hasPendingAvailability && factory != nil) {
+        NSLog(@"[RTCEngineAvailabilityHelper] Applying pending engine availability - input: %d, output: %d", pendingInputAvailable, pendingOutputAvailable);
+        [self setEngineAvailabilityWithInput:pendingInputAvailable output:pendingOutputAvailable];
+        // Note: hasPendingAvailability is cleared inside setEngineAvailabilityWithInput on success
+        return YES; // Pending state was applied
+    }
+    return NO; // No pending state
 }
 
 + (BOOL)setEngineAvailabilityWithInput:(BOOL)isInputAvailable output:(BOOL)isOutputAvailable {
     RTCPeerConnectionFactory *factory = sharedPeerConnectionFactory;
     if (!factory) {
-        NSLog(@"[RTCEngineAvailabilityHelper] Warning: peerConnectionFactory is nil. Make sure react-native-webrtc is initialized.");
+        // Factory not ready yet (app cold starting from push notification)
+        // Store the state and apply it when factory is initialized
+        NSLog(@"[RTCEngineAvailabilityHelper] peerConnectionFactory is nil, storing pending state - input: %d, output: %d", isInputAvailable, isOutputAvailable);
+        hasPendingAvailability = YES;
+        pendingInputAvailable = isInputAvailable;
+        pendingOutputAvailable = isOutputAvailable;
         return NO;
     }
 
@@ -34,6 +53,10 @@ static __weak RTCPeerConnectionFactory *sharedPeerConnectionFactory = nil;
         return NO;
     }
     NSLog(@"[RTCEngineAvailabilityHelper] Set engine availability - input: %d, output: %d (result: %d)", isInputAvailable, isOutputAvailable, result);
+
+    // Clear pending state since we successfully applied
+    hasPendingAvailability = NO;
+
     return YES;
 }
 
